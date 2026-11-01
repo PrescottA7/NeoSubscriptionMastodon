@@ -1,0 +1,12 @@
+/target/
+/frontend/node_modules/
+/frontend/dist/*
+!/frontend/dist/.gitkeep
+/data/
+/target/
+*.tsbuildinfo
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+.env
+/config.yml

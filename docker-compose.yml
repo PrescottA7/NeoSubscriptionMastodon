@@ -1,0 +1,22 @@
+services:
+  nsm:
+    build:
+      context: .
+    image: nsm:latest
+    container_name: nsm
+    restart: unless-stopped
+    ports:
+      - "${NSM_PORT:-3000}:3000"
+    environment:
+      NSM_COOKIE_SECURE: "${NSM_COOKIE_SECURE:-false}"
+    volumes:
+      - nsm-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  nsm-data:

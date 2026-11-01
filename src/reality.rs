@@ -1,0 +1,124 @@
+//! REALITY key pair helpers.
+//!
+//! Xray accepts a base64 X25519 private key and derives the public key clients
+//! receive. Computing it here means the operator only pastes the private key
+//! once, instead of copying two values around and getting them out of sync.
+//!
+//! Reference: <https://xtls.github.io/en/config/transports/stream.html#realityobject>
+
+use base64::Engine;
+use x25519_dalek::{PublicKey, StaticSecret};
+
+const KEYSIZE: usize = 32;
+
+/// A REALITY key pair in the base64 form Xray uses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RealityKeyPair {
+    pub private_key: String,
+    pub public_key: String,
+}
+
+/// Derives the public key for a base64 private key.
+///
+/// Accepts both padded and unpadded base64, and URL-safe alphabets, because
+/// operators copy these values from different tools.
+pub fn public_from_private(private_key: &str) -> Result<String, String> {
+    let bytes = decode(private_key)?;
+    let secret = StaticSecret::from(bytes);
+    let public = PublicKey::from(&secret);
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(public.as_bytes()))
+}
+
+/// Generates a fresh key pair.
+pub fn generate() -> RealityKeyPair {
+    let mut raw = [0u8; KEYSIZE];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut raw);
+
+    let secret = StaticSecret::from(raw);
+    let public = PublicKey::from(&secret);
+
+    let encoder = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    RealityKeyPair {
+        private_key: encoder.encode(secret.to_bytes()),
+        public_key: encoder.encode(public.as_bytes()),
+    }
+}
+
+fn decode(value: &str) -> Result<[u8; KEYSIZE], String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("私钥不能为空".to_owned());
+    }
+
+    let engines = [
+        base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        base64::engine::general_purpose::STANDARD,
+        base64::engine::general_purpose::URL_SAFE,
+    ];
+
+    for engine in engines {
+        if let Ok(bytes) = engine.decode(trimmed)
+            && bytes.len() == KEYSIZE
+        {
+            return Ok(bytes.try_into().expect("length checked"));
+        }
+    }
+
+    Err("私钥必须是 32 字节的 base64 字符串，例如 xray x25519 生成的 Private key".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_pair_is_consistent() {
+        let pair = generate();
+        let derived = public_from_private(&pair.private_key).expect("derive");
+        assert_eq!(derived, pair.public_key);
+    }
+
+    #[test]
+    fn generated_keys_have_the_expected_length() {
+        let pair = generate();
+        // 32 bytes of base64url without padding is 43 characters.
+        assert_eq!(pair.private_key.len(), 43);
+        assert_eq!(pair.public_key.len(), 43);
+    }
+
+    #[test]
+    fn two_pairs_differ() {
+        assert_ne!(generate().private_key, generate().private_key);
+    }
+
+    #[test]
+    fn derivation_is_deterministic() {
+        let pair = generate();
+        let first = public_from_private(&pair.private_key).expect("derive");
+        let second = public_from_private(&pair.private_key).expect("derive");
+        assert_eq!(first, second);
+        assert_eq!(first, pair.public_key);
+    }
+
+
+    #[test]
+    fn padded_and_standard_base64_are_accepted() {
+        let pair = generate();
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(&pair.private_key)
+            .expect("decode");
+        let standard = base64::engine::general_purpose::STANDARD.encode(bytes);
+
+        assert_eq!(
+            public_from_private(&standard).expect("standard base64"),
+            pair.public_key
+        );
+    }
+
+    #[test]
+    fn rejects_blank_and_short_keys() {
+        assert!(public_from_private("").is_err());
+        assert!(public_from_private("   ").is_err());
+        assert!(public_from_private("AAAA").is_err());
+    }
+}
