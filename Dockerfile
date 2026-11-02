@@ -3,11 +3,14 @@
 # ============================================
 FROM node:22-alpine AS frontend-builder
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@12.16.1 --activate
 
 WORKDIR /app/frontend
 
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+# pnpm-workspace.yaml carries `allowBuilds` (which packages may run install
+# scripts). Without it pnpm 12 refuses to install because esbuild's postinstall
+# was never approved.
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY frontend/ ./
@@ -38,9 +41,11 @@ RUN cargo build --release && \
 # ============================================
 FROM alpine:3.21
 
+# `VOLUME` below creates /app/data as root when Docker materialises it, so the
+# directory must exist and be owned by `nsm` before that line runs.
 RUN apk add --no-cache ca-certificates tzdata && \
     adduser -D -H -u 10001 -s /sbin/nologin nsm && \
-    mkdir -p /app && \
+    mkdir -p /app/data && \
     chown -R nsm:nsm /app
 
 COPY --from=rust-builder /app/nsm /usr/local/bin/nsm
@@ -53,8 +58,12 @@ VOLUME ["/app/data"]
 
 USER nsm
 
+# A TCP connect instead of an HTTP GET: the admin prefix and the accepted hosts
+# are configurable, so no single URL is guaranteed to answer from inside the
+# container. A listener on the configured port is the one thing `bind_addr`
+# always provides.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
+    CMD nc -z 127.0.0.1 3000 || exit 1
 
 ENTRYPOINT ["/usr/local/bin/nsm"]
 CMD ["-c", "/app/config.yml"]
