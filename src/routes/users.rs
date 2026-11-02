@@ -8,19 +8,49 @@ use axum::{
 use serde::Serialize;
 
 use crate::auth::RequireAuth;
-use crate::db::users::{self, CreatedUser, NewUser, UpdateUser, UserSummary};
-use crate::error::{RequestError, RequestResult};
+use crate::db::users::{self, CreatedUser, NewUser, SlugError, UpdateUser, UserSummary};
+use crate::error::{FieldError, RequestError, RequestResult};
 use crate::routes::extract::ApiJson;
 use crate::state::AppState;
 use crate::validate::Validator;
 
-/// A one-time view containing the plaintext subscription token.
+/// Slug conflicts are user-visible field problems, not internal failures.
+fn slug_error(error: SlugError) -> RequestError {
+    match error {
+        SlugError::Taken(slug) => RequestError::validation(vec![FieldError {
+            field: "token".to_owned(),
+            message: format!("订阅路径 “{slug}” 已被占用"),
+        }]),
+        SlugError::Exhausted => RequestError::internal(crate::error::internal(error.to_string())),
+        SlugError::Db(inner) => RequestError::internal(inner.into()),
+    }
+}
+
+/// Payload for a user, including the link the operator can hand out.
 #[derive(Serialize)]
 struct ProvisionedUser {
     user: UserSummary,
     token: String,
     subscription_path: String,
     subscription_url: String,
+}
+
+/// User row for the admin UI: the summary plus the path it resolves to.
+#[derive(Serialize)]
+struct UserView {
+    #[serde(flatten)]
+    user: UserSummary,
+    subscription_path: String,
+}
+
+impl UserView {
+    fn new(state: &AppState, user: UserSummary) -> Self {
+        let subscription_path = format!("{}/{}", state.subscription_prefix(), user.token);
+        Self {
+            user,
+            subscription_path,
+        }
+    }
 }
 
 pub fn routes(state: &AppState) -> Router<AppState> {
@@ -34,17 +64,22 @@ pub fn routes(state: &AppState) -> Router<AppState> {
         ))
 }
 
-async fn list_users(State(state): State<AppState>) -> RequestResult<Json<Vec<UserSummary>>> {
-    Ok(Json(users::list(&state.db).await?))
+async fn list_users(State(state): State<AppState>) -> RequestResult<Json<Vec<UserView>>> {
+    let rows = users::list(&state.db).await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|user| UserView::new(&state, user))
+            .collect(),
+    ))
 }
 
 async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> RequestResult<Json<UserSummary>> {
+) -> RequestResult<Json<UserView>> {
     users::get(&state.db, id)
         .await?
-        .map(Json)
+        .map(|user| Json(UserView::new(&state, user)))
         .ok_or_else(|| RequestError::not_found(format!("用户 {id} 不存在")))
 }
 
@@ -54,14 +89,14 @@ async fn create_user(
 ) -> RequestResult<Response> {
     validate_new_user(&payload)?;
 
-    let CreatedUser { user, token } = users::create(&state.db, &payload).await?;
-    let settings = state.settings().await?;
+    let CreatedUser { user, token } = users::create(&state.db, &payload).await.map_err(slug_error)?;
+    let prefix = state.subscription_prefix();
 
     Ok((
         StatusCode::CREATED,
         Json(ProvisionedUser {
-            subscription_path: format!("{}/{}", settings.subscription_prefix, token),
-            subscription_url: format!("{}/{}", settings.subscription_prefix, token),
+            subscription_path: format!("{prefix}/{token}"),
+            subscription_url: format!("{prefix}/{token}"),
             user,
             token,
         }),
@@ -73,12 +108,13 @@ async fn update_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     ApiJson(payload): ApiJson<UpdateUser>,
-) -> RequestResult<Json<UserSummary>> {
+) -> RequestResult<Json<UserView>> {
     validate_user_update(&payload)?;
 
     users::update(&state.db, id, &payload)
-        .await?
-        .map(Json)
+        .await
+        .map_err(slug_error)?
+        .map(|user| Json(UserView::new(&state, user)))
         .ok_or_else(|| RequestError::not_found(format!("用户 {id} 不存在")))
 }
 
@@ -86,13 +122,36 @@ async fn update_user(
 fn validate_new_user(payload: &NewUser) -> Result<(), RequestError> {
     let mut validator = Validator::new();
     validator.optional_text("remark", "备注", Some(payload.remark.as_str()), 64);
+    validate_slug(&mut validator, payload.token.as_deref());
     validator.finish()
 }
 
 fn validate_user_update(payload: &UpdateUser) -> Result<(), RequestError> {
     let mut validator = Validator::new();
     validator.optional_text("remark", "备注", payload.remark.as_deref(), 64);
+    validate_slug(&mut validator, payload.token.as_deref());
     validator.finish()
+}
+
+/// Subscription slugs appear in a URL path, so they are limited to the
+/// characters that need no escaping.
+fn validate_slug(validator: &mut Validator, token: Option<&str>) {
+    let Some(token) = token.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+
+    validator.require(
+        token.len() <= 64,
+        "token",
+        "订阅路径最多 64 个字符",
+    );
+    validator.require(
+        token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+        "token",
+        "订阅路径只能包含字母、数字、- 和 _",
+    );
 }
 
 async fn delete_user(
@@ -106,19 +165,20 @@ async fn delete_user(
     }
 }
 
-/// Issues a fresh subscription token, revoking the previous link immediately.
+/// Issues a fresh subscription slug, revoking the previous link immediately.
 async fn reset_link(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> RequestResult<Json<ProvisionedUser>> {
     let (user, token) = users::reset_token(&state.db, id)
-        .await?
+        .await
+        .map_err(slug_error)?
         .ok_or_else(|| RequestError::not_found(format!("用户 {id} 不存在")))?;
-    let settings = state.settings().await?;
+    let prefix = state.subscription_prefix();
 
     Ok(Json(ProvisionedUser {
-        subscription_path: format!("{}/{}", settings.subscription_prefix, token),
-        subscription_url: format!("{}/{}", settings.subscription_prefix, token),
+        subscription_path: format!("{prefix}/{token}"),
+        subscription_url: format!("{prefix}/{token}"),
         user,
         token,
     }))
@@ -144,7 +204,7 @@ mod tests {
             id: 1,
             remark: String::new(),
             enabled: true,
-            token_hint: "abcd1234".to_owned(),
+            token: "alice".to_owned(),
             access_count: 0,
             last_accessed_at: None,
             created_at: chrono::Utc::now(),

@@ -4,7 +4,7 @@ use serde::Serialize;
 
 /// A subscription consumer.
 ///
-/// The user owns a subscription token and nothing else: proxy credentials are
+/// The user owns a subscription slug and nothing else: proxy credentials are
 /// per node and live in `node_credentials`, because each proxy server keeps its
 /// own account list.
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize)]
@@ -14,9 +14,8 @@ pub struct Model {
     pub id: i64,
     pub remark: String,
     pub enabled: bool,
-    /// SHA-256 of the subscription token. The plaintext is shown once.
-    pub token_hash: String,
-    pub token_hint: String,
+    /// The subscription slug: the user-visible, editable part of the link.
+    pub token: String,
     pub last_accessed_at: Option<DateTime<Utc>>,
     pub access_count: i64,
     pub created_at: DateTime<Utc>,

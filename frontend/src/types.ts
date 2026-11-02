@@ -362,7 +362,10 @@ export const UserSchema = z.object({
   id: z.number(),
   remark: z.string(),
   enabled: z.boolean(),
-  token_hint: z.string(),
+  /// The subscription slug: always visible and editable.
+  token: z.string(),
+  /// Full subscription path the slug currently resolves to.
+  subscription_path: z.string(),
   access_count: z.number(),
   last_accessed_at: z.string().nullable(),
   created_at: z.string(),

@@ -8,7 +8,6 @@ use serde::Deserialize;
 use crate::db::users;
 use crate::render::{context::RenderUser, render_collection, Core, RenderContext};
 use crate::state::AppState;
-use crate::utils::hash_secret;
 
 #[derive(Deserialize, Default)]
 struct SubscriptionQuery {
@@ -60,7 +59,7 @@ pub async fn respond(
         return disguise.not_found().await;
     }
 
-    let user = match users::find_by_token(&state.db, &hash_secret(token)).await {
+    let user = match users::find_by_token(&state.db, token).await {
         Ok(Some(user)) => user,
         Ok(None) => return disguise.not_found().await,
         Err(error) => {

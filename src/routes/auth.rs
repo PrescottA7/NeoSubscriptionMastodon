@@ -101,7 +101,7 @@ async fn logout(
     }
 
     // A cookie is only removed when the response carries an expiry in the past.
-    let cookie = auth::clearing_cookie(state.config.cookie_secure);
+    let cookie = auth::clearing_cookie(state.config.cookie_secure, &cookie_path(&state));
 
     Ok((cookies.add(cookie), StatusCode::NO_CONTENT).into_response())
 }
@@ -141,6 +141,15 @@ async fn change_password(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Cookie path matching the admin prefix, so the session never rides along on a
+/// subscription request.
+fn cookie_path(state: &AppState) -> String {
+    match state.admin_prefix() {
+        "" => "/".to_owned(),
+        prefix => prefix.to_owned(),
+    }
+}
+
 /// Issues a session token and returns the updated cookie jar.
 async fn issue_cookie(state: &AppState, cookies: CookieJar) -> RequestResult<CookieJar> {
     let admin = state
@@ -150,9 +159,10 @@ async fn issue_cookie(state: &AppState, cookies: CookieJar) -> RequestResult<Coo
 
     let token = state.sessions.issue(&admin).await?;
     let cookie = Cookie::build((SESSION_COOKIE_NAME, token))
-        .path("/")
-        .http_only(true)
-        .same_site(axum_extra::extract::cookie::SameSite::Lax)
+        // Scoping the cookie to the admin prefix keeps the session off the
+        // subscription paths when both live under the same host.
+        .path(cookie_path(state))
+        .http_only(true)        .same_site(axum_extra::extract::cookie::SameSite::Lax)
         .secure(state.config.cookie_secure)
         // Without Max-Age the cookie dies when the browser closes, which both
         // breaks "stay logged in" and hides the real cause of a failed login.

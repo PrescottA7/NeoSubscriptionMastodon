@@ -136,6 +136,32 @@ describe("mergeServerErrors", () => {
 });
 
 describe("validateUserForm", () => {
+  it("accepts a plain remark", () => {
+    expect(validateUserForm({ remark: "alice" })).toEqual({});
+  });
+
+  it("accepts a url-safe subscription path", () => {
+    expect(validateUserForm({ remark: "alice", token: "alice_link-01" })).toEqual({});
+  });
+
+  it("rejects characters that would need escaping in a path", () => {
+    expect(validateUserForm({ remark: "a", token: "with space" }).token).toBe(
+      "订阅路径只能包含字母、数字、- 和 _",
+    );
+    expect(validateUserForm({ remark: "a", token: "with/slash" }).token).toBeTruthy();
+    expect(validateUserForm({ remark: "a", token: "with?query" }).token).toBeTruthy();
+  });
+
+  it("bounds the subscription path length", () => {
+    expect(validateUserForm({ remark: "a", token: "x".repeat(65) }).token).toBe(
+      "订阅路径最多 64 个字符",
+    );
+  });
+
+  it("treats an empty path as generated", () => {
+    expect(validateUserForm({ remark: "a", token: "   " })).toEqual({});
+  });
+
   it("accepts a normal remark", () => {
     expect(isEmpty(validateUserForm({ remark: "Alice" }))).toBe(true);
   });

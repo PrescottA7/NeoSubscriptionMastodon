@@ -28,6 +28,7 @@ pub use state::AppState;
 /// Builds the HTTP application: schema, state, routes, and tracing.
 pub async fn build_app(config: AppConfig) -> anyhow::Result<Router> {
     config.ensure_directories()?;
+    config.validate().context("validate configuration")?;
 
     let state = AppState::new(config).await.context("initialize state")?;
 

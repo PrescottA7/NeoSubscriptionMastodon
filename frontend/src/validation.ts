@@ -125,11 +125,21 @@ export function mergeServerErrors(errors: FieldErrors, server: FieldErrors): Fie
 }
 
 /** Mirrors `validate_new_user` / `validate_user_update` on the server. */
-export function validateUserForm(form: { remark: string }): FieldErrors {
+export function validateUserForm(form: { remark: string; token?: string }): FieldErrors {
   const errors: FieldErrors = {};
   if (form.remark.trim().length > 64) {
     errors.remark = "备注最多 64 个字符";
   }
+
+  const token = (form.token ?? "").trim();
+  if (token.length > 0) {
+    if (token.length > 64) {
+      errors.token = "订阅路径最多 64 个字符";
+    } else if (!/^[A-Za-z0-9_-]+$/.test(token)) {
+      errors.token = "订阅路径只能包含字母、数字、- 和 _";
+    }
+  }
+
   return errors;
 }
 

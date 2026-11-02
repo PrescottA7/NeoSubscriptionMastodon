@@ -27,8 +27,14 @@ import {
   type User,
 } from "./types";
 
+/**
+ * API root. Under an admin path prefix the UI is served from `/subsc-admin`, so
+ * requests have to carry that prefix too.
+ */
+const base = (window as { __NSM_BASE__?: string }).__NSM_BASE__ ?? "";
+
 const http = axios.create({
-  baseURL: "/",
+  baseURL: `${base}/`,
   timeout: 15000,
   withCredentials: true,
 });
@@ -177,6 +183,7 @@ export async function listUsers(): Promise<User[]> {
 export async function createUser(payload: {
   remark?: string;
   enabled?: boolean;
+  token?: string;
 }): Promise<ProvisionedUser> {
   const { data } = await http.post("/api/users", payload);
   return ProvisionedUserSchema.parse(data);
@@ -184,7 +191,7 @@ export async function createUser(payload: {
 
 export async function updateUser(
   id: number,
-  payload: { remark?: string; enabled?: boolean },
+  payload: { remark?: string; enabled?: boolean; token?: string },
 ): Promise<User> {
   const { data } = await http.patch(`/api/users/${id}`, payload);
   return UserSchema.parse(data);

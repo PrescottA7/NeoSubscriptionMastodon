@@ -26,6 +26,37 @@ async fn harness() -> Harness {
     }
 }
 
+/// Harness with host routing and an admin path prefix configured.
+async fn split_harness() -> Harness {
+    let temp = TempDir::new().expect("temp dir");
+    let mut config = AppConfig::test_config(temp.path());
+    config.subscription_host = Some("sub.example.com".to_owned());
+    config.admin_host = Some("panel.example.com".to_owned());
+    config.admin_path_prefix = Some("/subsc-admin".to_owned());
+    config.subscription_prefix = Some("/link".to_owned());
+    let router = nsm::build_app(config).await.expect("build app");
+    Harness {
+        _temp: temp,
+        router,
+    }
+}
+
+/// Request carrying an explicit `Host`, for host-routing tests.
+fn host_request(method: Method, uri: &str, host: &str, body: Option<Value>) -> Request<Body> {
+    let builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::HOST, host);
+
+    match body {
+        Some(value) => builder
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(&value).expect("serialize")))
+            .expect("request"),
+        None => builder.body(Body::empty()).expect("request"),
+    }
+}
+
 /// Sends a request and returns status, body, and the session cookie if any.
 async fn send(harness: &Harness, request: Request<Body>) -> (StatusCode, String, Option<String>) {
     let response: Response = harness
@@ -544,6 +575,290 @@ async fn passthrough_rejects_a_plain_http_template() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert!(body.contains("disguise_template_url"), "{body}");
+}
+
+#[tokio::test]
+async fn subscription_host_hides_the_admin_area() {
+    let harness = split_harness().await;
+
+    // The admin prefix and API are unreachable from the subscription host.
+    for path in ["/subsc-admin", "/subsc-admin/login", "/subsc-admin/api/health", "/api/health"] {
+        let (status, body, _) = send(
+            &harness,
+            host_request(Method::GET, path, "sub.example.com", None),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "path {path}: {body}");
+        assert!(body.contains("404"), "path {path} should be disguised: {body}");
+    }
+}
+
+#[tokio::test]
+async fn admin_host_hides_the_subscription_paths() {
+    let harness = split_harness().await;
+
+    let (status, body, _) = send(
+        &harness,
+        host_request(Method::GET, "/link/unknown-token", "panel.example.com", None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert!(body.contains("404"), "expected the disguise page: {body}");
+}
+
+#[tokio::test]
+async fn the_admin_prefix_serves_the_api_and_login() {
+    let harness = split_harness().await;
+
+    let (status, body, _) = send(
+        &harness,
+        host_request(Method::GET, "/subsc-admin/api/health", "panel.example.com", None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.contains("\"ok\""), "{body}");
+
+    // An unauthenticated admin call still answers 401 rather than the disguise.
+    let (status, body, _) = send(
+        &harness,
+        host_request(Method::GET, "/subsc-admin/api/auth/me", "panel.example.com", None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+}
+
+#[tokio::test]
+async fn setup_works_under_the_admin_prefix() {
+    let harness = split_harness().await;
+
+    let (status, body, cookie) = send(
+        &harness,
+        host_request(
+            Method::POST,
+            "/subsc-admin/api/auth/setup",
+            "panel.example.com",
+            Some(json!({ "username": "admin", "password": "a-very-long-password" })),
+        ),
+    )
+    .await;
+
+    assert!(status.is_success(), "setup failed: {body}");
+    let cookie = cookie.expect("session cookie");
+    // The cookie must be scoped to the admin prefix, not the whole host.
+    let set_cookie = last_headers()
+        .get(header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(set_cookie.contains("Path=/subsc-admin"), "{set_cookie}");
+    assert!(!cookie.is_empty());
+}
+
+#[tokio::test]
+async fn the_pinned_subscription_prefix_is_used_in_links() {
+    let harness = split_harness().await;
+
+    // Create the admin first; the setup route lives under the admin prefix.
+    send(
+        &harness,
+        host_request(
+            Method::POST,
+            "/subsc-admin/api/auth/setup",
+            "panel.example.com",
+            Some(json!({ "username": "admin", "password": "a-very-long-password" })),
+        ),
+    )
+    .await;
+
+    let (_, _, cookie) = send(
+        &harness,
+        host_request(
+            Method::POST,
+            "/subsc-admin/api/auth/login",
+            "panel.example.com",
+            Some(json!({ "username": "admin", "password": "a-very-long-password" })),
+        ),
+    )
+    .await;
+    let cookie = cookie.expect("session cookie");
+
+    let (status, body, _) = send(
+        &harness,
+        {
+            let mut request = host_request(
+                Method::POST,
+                "/subsc-admin/api/users",
+                "panel.example.com",
+                Some(json!({ "remark": "alice" })),
+            );
+            request
+                .headers_mut()
+                .insert(header::COOKIE, cookie.parse().expect("cookie"));
+            request
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let created: Value = serde_json::from_str(&body).expect("json");
+    // The pinned prefix wins over the database default.
+    assert_eq!(
+        created["subscription_path"],
+        format!("/link/{}", created["token"].as_str().expect("token")),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn an_unrecognised_host_gets_the_disguise_page() {
+    let harness = split_harness().await;
+
+    // Neither configured host, so nothing is served — not even the health probe.
+    for path in ["/subsc-admin/api/health", "/link/anything", "/"] {
+        let (status, body, _) = send(
+            &harness,
+            host_request(Method::GET, path, "other.example.net", None),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "path {path}: {body}");
+        assert!(body.contains("404"), "path {path}: {body}");
+    }
+}
+
+#[tokio::test]
+async fn mixed_mode_keeps_the_historical_layout() {
+    let harness = harness().await;
+    let cookie = setup(&harness).await;
+
+    // No hosts configured: the API answers at the root and probes stay disguised.
+    let (status, body, _) = send(&harness, get_request("/api/health", None)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, body, _) = send(&harness, get_request("/admin", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert!(body.contains("404"), "{body}");
+
+    assert!(!cookie.is_empty());
+}
+
+#[tokio::test]
+async fn a_user_can_be_created_with_a_chosen_subscription_path() {
+    let harness = harness().await;
+    let cookie = setup(&harness).await;
+
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::POST,
+            "/api/users",
+            json!({ "remark": "alice", "token": "alice-link" }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let created: Value = serde_json::from_str(&body).expect("json");
+    assert_eq!(created["token"], "alice-link", "{body}");
+    assert_eq!(created["user"]["token"], "alice-link", "{body}");
+    assert_eq!(created["subscription_path"], "/s/alice-link", "{body}");
+}
+
+#[tokio::test]
+async fn the_subscription_path_is_visible_and_editable() {
+    let harness = harness().await;
+    let cookie = setup(&harness).await;
+
+    let (_, body, _) = send(
+        &harness,
+        json_request(Method::POST, "/api/users", json!({ "remark": "alice" }), Some(&cookie)),
+    )
+    .await;
+    let created: Value = serde_json::from_str(&body).expect("json");
+    let user_id = created["user"]["id"].as_i64().expect("id");
+    let generated = created["token"].as_str().expect("token").to_owned();
+    assert!(!generated.is_empty());
+
+    // The list endpoint exposes the slug, so the link is always retrievable.
+    let (status, body, _) = send(&harness, get_request("/api/users", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let listed: Value = serde_json::from_str(&body).expect("json");
+    assert_eq!(listed[0]["token"], generated, "{body}");
+
+    // Renaming the slug moves the link.
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::PATCH,
+            &format!("/api/users/{user_id}"),
+            json!({ "token": "my-new-link" }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).expect("json")["token"],
+        "my-new-link"
+    );
+
+    let (status, _, _) = send(&harness, get_request("/s/my-new-link", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "new link should resolve");
+    let (status, _, _) = send(&harness, get_request(&format!("/s/{generated}"), None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "old link must be gone");
+
+    let (status, _, _) = send(&harness, get_request("/s/does-not-exist", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn duplicate_subscription_paths_are_rejected() {
+    let harness = harness().await;
+    let cookie = setup(&harness).await;
+
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::POST,
+            "/api/users",
+            json!({ "remark": "first", "token": "shared" }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::POST,
+            "/api/users",
+            json!({ "remark": "second", "token": "shared" }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.contains("已被占用"), "{body}");
+}
+
+#[tokio::test]
+async fn subscription_paths_reject_url_syntax() {
+    let harness = harness().await;
+    let cookie = setup(&harness).await;
+
+    for bad in ["with space", "with/slash", "with?query"] {
+        let (status, body, _) = send(
+            &harness,
+            json_request(
+                Method::POST,
+                "/api/users",
+                json!({ "remark": "x", "token": bad }),
+                Some(&cookie),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {body}");
+        assert!(body.contains("token") || body.contains("订阅路径"), "{bad}: {body}");
+    }
 }
 
 #[tokio::test]
@@ -1419,6 +1734,7 @@ async fn user_deletion_cleans_up_access_rows() {
         &db::users::NewUser {
             remark: String::new(),
             enabled: true,
+            token: None,
         },
     )
     .await

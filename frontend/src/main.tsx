@@ -13,10 +13,23 @@ import App from "./App.tsx";
 import ColorModeProvider from "./components/ColorModeProvider";
 import { store } from "./store/store";
 
+declare global {
+  interface Window {
+    /** Injected by the server; the admin path prefix, empty at the root. */
+    __NSM_BASE__?: string;
+  }
+}
+
+/**
+ * Router base. The server substitutes `__NSM_BASE__` in `index.html`, so the
+ * same binary works at the root and under a prefix such as `/subsc-admin`.
+ */
+const base = window.__NSM_BASE__ ?? "";
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <Provider store={store}>
-      <BrowserRouter>
+      <BrowserRouter basename={base || undefined}>
         <ColorModeProvider>
           <App />
         </ColorModeProvider>

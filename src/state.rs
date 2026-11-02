@@ -9,6 +9,48 @@ use crate::crypto::EncryptionKey;
 use crate::db::{self, admins::AdminSummary, settings::AppSettings};
 use crate::disguise::Disguise;
 
+/// Which part of the service a request is meant for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestScope {
+    /// Host routing is off; serve the historical mixed layout.
+    Mixed,
+    /// The request arrived on the admin host.
+    Admin,
+    /// The request arrived on the subscription host.
+    Subscription,
+    /// Host routing is on but the name matched neither host.
+    Unknown,
+}
+
+/// Host the client asked for, preferring the proxy's `X-Forwarded-Host`.
+///
+/// Reverse proxies commonly rewrite `Host`, so the original name travels in
+/// `X-Forwarded-Host`; the first value wins when several are supplied.
+fn request_host(headers: &axum::http::HeaderMap) -> Option<String> {
+    let raw = headers
+        .get("x-forwarded-host")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            headers
+                .get(axum::http::header::HOST)
+                .and_then(|value| value.to_str().ok())
+        })?;
+
+    let lowered = raw.trim().to_ascii_lowercase();
+    let host = match lowered.rfind(']') {
+        Some(index) if lowered.starts_with('[') => lowered[..=index].to_owned(),
+        _ => lowered
+            .split(':')
+            .next()
+            .unwrap_or(&lowered)
+            .to_owned(),
+    };
+    (!host.is_empty()).then_some(host)
+}
+
 /// Shared application state: configuration, database, credentials key, and the
 /// cached settings/disguise page.
 #[derive(Clone)]
@@ -55,6 +97,42 @@ impl AppState {
             .read()
             .expect("settings lock poisoned")
             .clone()
+    }
+
+    /// Path prefix the admin UI and API are served under; empty means the root.
+    pub fn admin_prefix(&self) -> &str {
+        self.config.admin_prefix()
+    }
+
+    /// Subscription prefix actually in use.
+    ///
+    /// A prefix pinned in `config.yml` wins so an operator can fix the link
+    /// layout at deploy time; otherwise the database value applies.
+    pub fn subscription_prefix(&self) -> String {
+        match self.config.pinned_subscription_prefix() {
+            Some(pinned) => pinned.to_owned(),
+            None => self.settings_cached().subscription_prefix,
+        }
+    }
+
+    /// Which side of the service a request belongs to.
+    ///
+    /// When either host is configured, a request that matches neither is treated
+    /// as a probe: it gets the disguise page rather than the admin area.
+    pub fn scope_for(&self, headers: &axum::http::HeaderMap) -> RequestScope {
+        let host = request_host(headers);
+        let subscription = self.config.subscription_host.as_deref();
+        let admin = self.config.admin_host.as_deref();
+
+        if subscription.is_none() && admin.is_none() {
+            return RequestScope::Mixed;
+        }
+
+        match host.as_deref() {
+            Some(host) if Some(host) == subscription => RequestScope::Subscription,
+            Some(host) if Some(host) == admin => RequestScope::Admin,
+            _ => RequestScope::Unknown,
+        }
     }
 
     /// Current disguise page. Cloning is cheap because the body is behind an `Arc`.
@@ -144,5 +222,93 @@ mod tests {
         config.disguise_page = Some(temp.path().join("missing.html"));
 
         assert!(load_disguise_page(&config, None).is_none());
+    }
+
+    fn headers(pairs: &[(&str, &str)]) -> axum::http::HeaderMap {
+        let mut map = axum::http::HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(
+                axum::http::HeaderName::from_bytes(name.as_bytes()).expect("name"),
+                axum::http::HeaderValue::from_str(value).expect("value"),
+            );
+        }
+        map
+    }
+
+    #[test]
+    fn host_is_read_from_forwarded_header_first() {
+        let map = headers(&[
+            ("x-forwarded-host", "sub.example.com, proxy.internal"),
+            ("host", "panel.example.com"),
+        ]);
+        assert_eq!(request_host(&map).as_deref(), Some("sub.example.com"));
+    }
+
+    #[test]
+    fn host_falls_back_to_the_plain_header() {
+        let map = headers(&[("host", "Panel.Example.COM:8443")]);
+        assert_eq!(request_host(&map).as_deref(), Some("panel.example.com"));
+    }
+
+    #[tokio::test]
+    async fn scopes_follow_the_configured_hosts() {
+        let temp = tempdir().expect("temp dir");
+        let mut config = AppConfig::test_config(temp.path());
+        config.subscription_host = Some("sub.example.com".to_owned());
+        config.admin_host = Some("panel.example.com".to_owned());
+        let state = AppState::new(config).await.expect("state");
+
+        let sub = headers(&[("host", "sub.example.com")]);
+        let admin = headers(&[("host", "panel.example.com")]);
+        let other = headers(&[("host", "elsewhere.example.net")]);
+
+        assert_eq!(state.scope_for(&sub), RequestScope::Subscription);
+        assert_eq!(state.scope_for(&admin), RequestScope::Admin);
+        assert_eq!(state.scope_for(&other), RequestScope::Unknown);
+        assert_eq!(
+            state.scope_for(&axum::http::HeaderMap::new()),
+            RequestScope::Unknown
+        );
+    }
+
+    #[tokio::test]
+    async fn scope_routing_is_off_without_configured_hosts() {
+        let temp = tempdir().expect("temp dir");
+        let state = AppState::new(AppConfig::test_config(temp.path()))
+            .await
+            .expect("state");
+
+        let map = headers(&[("host", "sub.example.com")]);
+        assert_eq!(state.scope_for(&map), RequestScope::Mixed);
+    }
+
+    #[tokio::test]
+    async fn a_pinned_subscription_prefix_wins_over_the_database() {
+        let temp = tempdir().expect("temp dir");
+        let mut config = AppConfig::test_config(temp.path());
+        config.subscription_prefix = Some("/link".to_owned());
+        let state = AppState::new(config).await.expect("state");
+
+        db::settings::set(&state.db, db::settings::KEY_SUBSCRIPTION_PREFIX, "/db")
+            .await
+            .expect("store prefix");
+        state.reload_disguise().await.expect("reload");
+
+        assert_eq!(state.subscription_prefix(), "/link");
+    }
+
+    #[tokio::test]
+    async fn without_a_pinned_prefix_the_database_value_applies() {
+        let temp = tempdir().expect("temp dir");
+        let state = AppState::new(AppConfig::test_config(temp.path()))
+            .await
+            .expect("state");
+
+        db::settings::set(&state.db, db::settings::KEY_SUBSCRIPTION_PREFIX, "/db")
+            .await
+            .expect("store prefix");
+        state.reload_disguise().await.expect("reload");
+
+        assert_eq!(state.subscription_prefix(), "/db");
     }
 }

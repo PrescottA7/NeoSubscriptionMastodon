@@ -167,9 +167,9 @@ pub fn session_expiry() -> DateTime<Utc> {
 ///
 /// A cookie is only removed when the response carries `Max-Age=0` (and/or an
 /// `Expires` in the past); setting an empty value alone leaves it in place.
-pub fn clearing_cookie(secure: bool) -> axum_extra::extract::cookie::Cookie<'static> {
+pub fn clearing_cookie(secure: bool, path: &str) -> axum_extra::extract::cookie::Cookie<'static> {
     axum_extra::extract::cookie::Cookie::build((SESSION_COOKIE_NAME, ""))
-        .path("/")
+        .path(path.to_owned())
         .http_only(true)
         .same_site(axum_extra::extract::cookie::SameSite::Lax)
         .secure(secure)
@@ -217,10 +217,10 @@ mod tests {
 
     #[test]
     fn clearing_cookie_expires_immediately() {
-        let rendered = clearing_cookie(false).to_string();
+        let rendered = clearing_cookie(false, "/").to_string();
         let lowered = rendered.to_ascii_lowercase();
 
-        assert_eq!(clearing_cookie(false).name(), SESSION_COOKIE_NAME);
+        assert_eq!(clearing_cookie(false, "/").name(), SESSION_COOKIE_NAME);
         assert!(lowered.contains("max-age=0"), "{rendered}");
         assert!(lowered.contains("expires=thu, 01 jan 1970"), "{rendered}");
         assert!(lowered.contains("httponly"), "{rendered}");
@@ -228,7 +228,13 @@ mod tests {
 
     #[test]
     fn clearing_cookie_is_secure_when_configured() {
-        let rendered = clearing_cookie(true).to_string().to_ascii_lowercase();
+        let rendered = clearing_cookie(true, "/").to_string().to_ascii_lowercase();
         assert!(rendered.contains("secure"), "{rendered}");
+    }
+
+    #[test]
+    fn clearing_cookie_honours_the_admin_prefix() {
+        let rendered = clearing_cookie(false, "/subsc-admin").to_string();
+        assert!(rendered.contains("Path=/subsc-admin"), "{rendered}");
     }
 }

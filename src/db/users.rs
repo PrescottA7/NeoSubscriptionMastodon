@@ -5,7 +5,7 @@ use sea_orm::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::utils::{hash_secret, random_secret};
+use crate::utils::random_secret;
 
 use super::entities::users;
 
@@ -20,7 +20,8 @@ pub struct UserSummary {
     pub id: i64,
     pub remark: String,
     pub enabled: bool,
-    pub token_hint: String,
+    /// Subscription slug, always visible so the link can be shown and edited.
+    pub token: String,
     pub access_count: i64,
     pub last_accessed_at: Option<chrono::DateTime<Utc>>,
     pub created_at: chrono::DateTime<Utc>,
@@ -33,7 +34,7 @@ impl From<User> for UserSummary {
             id: user.id,
             remark: user.remark,
             enabled: user.enabled,
-            token_hint: user.token_hint,
+            token: user.token,
             access_count: user.access_count,
             last_accessed_at: user.last_accessed_at,
             created_at: user.created_at,
@@ -48,6 +49,9 @@ pub struct NewUser {
     pub remark: String,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Optional slug; generated when omitted.
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -56,9 +60,11 @@ pub struct UpdateUser {
     pub remark: Option<String>,
     #[serde(default)]
     pub enabled: Option<bool>,
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
-/// A user plus the one-time plaintext subscription token.
+/// A user plus the plaintext subscription slug.
 pub struct CreatedUser {
     pub user: UserSummary,
     pub token: String,
@@ -83,25 +89,40 @@ pub async fn get(conn: &DatabaseConnection, id: i64) -> Result<Option<UserSummar
         .map(UserSummary::from))
 }
 
-/// Resolves a subscription token to its user.
+/// Resolves a subscription slug to its user.
 pub async fn find_by_token(
     conn: &DatabaseConnection,
-    token_hash: &str,
+    token: &str,
 ) -> Result<Option<User>, DbErr> {
     users::Entity::find()
-        .filter(users::Column::TokenHash.eq(token_hash))
+        .filter(users::Column::Token.eq(token))
         .one(conn)
         .await
 }
 
-pub async fn create(conn: &DatabaseConnection, input: &NewUser) -> Result<CreatedUser, DbErr> {
-    let token = random_secret();
+/// True when no other user already owns `token`.
+pub async fn token_available(
+    conn: &DatabaseConnection,
+    token: &str,
+    except_id: Option<i64>,
+) -> Result<bool, DbErr> {
+    let existing = users::Entity::find()
+        .filter(users::Column::Token.eq(token))
+        .one(conn)
+        .await?;
+    Ok(match existing {
+        Some(user) => Some(user.id) == except_id,
+        None => true,
+    })
+}
+
+pub async fn create(conn: &DatabaseConnection, input: &NewUser) -> Result<CreatedUser, SlugError> {
+    let token = resolve_slug(conn, input.token.as_deref(), None).await?;
 
     let created = users::ActiveModel {
         remark: Set(input.remark.trim().to_owned()),
         enabled: Set(input.enabled),
-        token_hash: Set(hash_secret(&token)),
-        token_hint: Set(token_hint(&token)),
+        token: Set(token.clone()),
         last_accessed_at: Set(None),
         access_count: Set(0),
         created_at: Set(Utc::now()),
@@ -121,7 +142,7 @@ pub async fn update(
     conn: &DatabaseConnection,
     id: i64,
     input: &UpdateUser,
-) -> Result<Option<UserSummary>, DbErr> {
+) -> Result<Option<UserSummary>, SlugError> {
     let Some(existing) = users::Entity::find_by_id(id).one(conn).await? else {
         return Ok(None);
     };
@@ -133,28 +154,87 @@ pub async fn update(
     if let Some(enabled) = input.enabled {
         active.enabled = Set(enabled);
     }
+    if let Some(token) = input.token.as_deref() {
+        let token = token.trim();
+        if !token.is_empty() {
+            active.token = Set(resolve_slug(conn, Some(token), Some(id)).await?);
+        }
+    }
     active.updated_at = Set(Utc::now());
 
     Ok(Some(UserSummary::from(active.update(conn).await?)))
 }
 
-/// Replaces the subscription token, immediately revoking the previous link.
+/// Generates a fresh subscription slug, immediately revoking the previous link.
 pub async fn reset_token(
     conn: &DatabaseConnection,
     id: i64,
-) -> Result<Option<(UserSummary, String)>, DbErr> {
+) -> Result<Option<(UserSummary, String)>, SlugError> {
     let Some(existing) = users::Entity::find_by_id(id).one(conn).await? else {
         return Ok(None);
     };
 
-    let token = random_secret();
+    let token = resolve_slug(conn, None, Some(id)).await?;
     let mut active: users::ActiveModel = existing.into();
-    active.token_hash = Set(hash_secret(&token));
-    active.token_hint = Set(token_hint(&token));
+    active.token = Set(token.clone());
     active.updated_at = Set(Utc::now());
 
     let updated = active.update(conn).await?;
     Ok(Some((UserSummary::from(updated), token)))
+}
+
+/// Returns `requested` when it is free, otherwise a generated slug.
+///
+/// A caller-supplied slug that is already taken is an error rather than a silent
+/// rewrite: handing back a different link than the one asked for would be a
+/// surprise, and the operator can pick another name.
+pub async fn resolve_slug(
+    conn: &DatabaseConnection,
+    requested: Option<&str>,
+    except_id: Option<i64>,
+) -> Result<String, SlugError> {
+    if let Some(requested) = requested.map(str::trim).filter(|value| !value.is_empty()) {
+        if token_available(conn, requested, except_id).await? {
+            return Ok(requested.to_owned());
+        }
+        return Err(SlugError::Taken(requested.to_owned()));
+    }
+
+    // A generated slug is long enough that collisions are practically impossible,
+    // but retry anyway rather than surfacing a database error.
+    for _ in 0..16 {
+        let candidate = random_secret();
+        if token_available(conn, &candidate, except_id).await? {
+            return Ok(candidate);
+        }
+    }
+    Err(SlugError::Exhausted)
+}
+
+/// Why a subscription slug could not be assigned.
+#[derive(Debug)]
+pub enum SlugError {
+    /// Another user already owns the requested slug.
+    Taken(String),
+    /// No free slug could be generated.
+    Exhausted,
+    Db(DbErr),
+}
+
+impl From<DbErr> for SlugError {
+    fn from(error: DbErr) -> Self {
+        Self::Db(error)
+    }
+}
+
+impl std::fmt::Display for SlugError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Taken(slug) => write!(f, "订阅路径 “{slug}” 已被占用"),
+            Self::Exhausted => write!(f, "无法生成唯一的订阅路径，请重试"),
+            Self::Db(error) => write!(f, "{error}"),
+        }
+    }
 }
 
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> Result<bool, DbErr> {
@@ -191,18 +271,14 @@ pub async fn record_access(conn: &DatabaseConnection, id: i64) -> Result<(), DbE
     Ok(())
 }
 
-/// First eight characters of a token, safe to show in listings.
-fn token_hint(token: &str) -> String {
-    token.chars().take(8).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn token_hint_is_a_short_prefix() {
-        assert_eq!(token_hint("abcdefghijklmn"), "abcdefgh");
-        assert_eq!(token_hint("abc"), "abc");
+    fn a_generated_slug_is_url_safe() {
+        let slug = random_secret();
+        assert!(!slug.is_empty());
+        assert!(slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
     }
 }

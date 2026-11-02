@@ -23,7 +23,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { Add, Delete, Link as LinkIcon, Refresh } from "@mui/icons-material";
+import { Add, Check, Close, Delete, Edit, Link as LinkIcon, Refresh } from "@mui/icons-material";
 
 import {
   createUser,
@@ -35,6 +35,7 @@ import {
 } from "../api";
 import { CopyButton, MonoBlock } from "../components/CopyButton";
 import PageHeader from "../components/PageHeader";
+import { MONO_FONT } from "../theme";
 import { noticeAdded } from "../store/noticesSlice";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { loadCatalog } from "../store/catalogSlice";
@@ -48,6 +49,9 @@ export default function UsersPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [remark, setRemark] = useState("");
+  const [slug, setSlug] = useState("");
+  // Row being renamed inline: the user and the slug draft.
+  const [editing, setEditing] = useState<{ user: User; draft: string } | null>(null);
   const [provisioned, setProvisioned] = useState<ProvisionedUser | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<User | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,7 +68,7 @@ export default function UsersPage() {
   }
 
   async function handleCreate() {
-    const errors = validateUserForm({ remark });
+    const errors = validateUserForm({ remark, token: slug });
     if (!isEmpty(errors)) {
       setCreateErrors(errors);
       setDialogError(Object.values(errors)[0] ?? "请检查表单");
@@ -78,10 +82,13 @@ export default function UsersPage() {
       const created = await createUser({
         remark: remark.trim(),
         enabled: true,
+        // An empty slug lets the server generate one.
+        token: slug.trim() || undefined,
       });
       setProvisioned(created);
       setCreateOpen(false);
       setRemark("");
+      setSlug("");
       await refreshUsers();
     } catch (err) {
       const serverErrors = getApiFieldErrors(err);
@@ -91,6 +98,33 @@ export default function UsersPage() {
       setDialogError(getApiErrorMessage(err, "创建失败"));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Saves an inline rename of the subscription slug. */
+  async function handleRename() {
+    if (!editing) {
+      return;
+    }
+    const next = editing.draft.trim();
+    if (next === editing.user.token) {
+      setEditing(null);
+      return;
+    }
+
+    const errors = validateUserForm({ remark: editing.user.remark, token: next });
+    if (errors.token) {
+      dispatch(noticeAdded({ severity: "error", message: errors.token }));
+      return;
+    }
+
+    try {
+      await updateUser(editing.user.id, { token: next });
+      await refreshUsers();
+      setEditing(null);
+      setToast("订阅链接已更新");
+    } catch (err) {
+      dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "更新失败") }));
     }
   }
 
@@ -135,12 +169,25 @@ export default function UsersPage() {
     ? `${window.location.origin}${provisioned.subscription_path}`
     : "";
 
+  /** Full link for a user row, built from the path the server reports. */
+  function userLink(user: User) {
+    return `${window.location.origin}${user.subscription_path}`;
+  }
+
+  /** `linkPrefix` is everything before the slug, for the inline editor. */
+  function slugPrefix(user: User) {
+    return user.subscription_path.slice(
+      0,
+      user.subscription_path.length - user.token.length,
+    );
+  }
+
   return (
     <Box>
       <PageHeader
         crumbs={[{ label: "用户" }]}
         title="用户"
-        description="用户只是订阅消费者，不持有代理凭据；订阅链接仅在创建或重置时显示一次。"
+        description="用户只是订阅消费者，不持有代理凭据。订阅链接随时可查看与修改。"
         actions={
           <>
             <Button
@@ -189,9 +236,66 @@ export default function UsersPage() {
               )}
               {users.map((user) => (
                 <TableRow key={user.id} hover>
-                  <TableCell>{user.remark}</TableCell>
+                  <TableCell>{user.remark || `#${user.id}`}</TableCell>
                   <TableCell>{user.remark || "—"}</TableCell>
-                  <TableCell sx={{ fontFamily: "monospace" }}>…{user.token_hint}</TableCell>
+                  <TableCell>
+                    {editing?.user.id === user.id ? (
+                      <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+                        <Typography
+                          sx={{ fontFamily: MONO_FONT, fontSize: "0.75rem", color: "text.secondary" }}
+                        >
+                          {slugPrefix(user)}
+                        </Typography>
+                        <TextField
+                          size="small"
+                          value={editing.draft}
+                          autoFocus
+                          onChange={(event) =>
+                            setEditing({ user, draft: event.target.value })
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              void handleRename();
+                            }
+                            if (event.key === "Escape") {
+                              setEditing(null);
+                            }
+                          }}
+                          sx={{ width: 200 }}
+                        />
+                        <IconButton
+                          size="small"
+                          aria-label="保存订阅路径"
+                          onClick={() => void handleRename()}
+                        >
+                          <Check fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          aria-label="取消"
+                          onClick={() => setEditing(null)}
+                        >
+                          <Close fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                    ) : (
+                      <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+                        <Typography sx={{ fontFamily: MONO_FONT, fontSize: "0.75rem" }}>
+                          {user.subscription_path}
+                        </Typography>
+                        <Tooltip title="修改订阅路径">
+                          <IconButton
+                            size="small"
+                            aria-label="修改订阅路径"
+                            onClick={() => setEditing({ user, draft: user.token })}
+                          >
+                            <Edit fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <CopyButton value={userLink(user)} label="复制" />
+                      </Stack>
+                    )}
+                  </TableCell>
                   <TableCell>{user.access_count}</TableCell>
                   <TableCell>
                     <Switch
@@ -239,6 +343,17 @@ export default function UsersPage() {
               }
               fullWidth
             />
+            <TextField
+              label="订阅路径（可选）"
+              value={slug}
+              onChange={(event) => setSlug(event.target.value)}
+              error={Boolean(createErrors.token)}
+              helperText={
+                createErrors.token ??
+                "留空自动生成。只能包含字母、数字、- 和 _，之后可随时修改。"
+              }
+              fullWidth
+            />
             <Alert severity="info">
               用户只是订阅者，不持有代理凭据。每个节点的账号在节点编辑页单独配置。
             </Alert>
@@ -255,9 +370,6 @@ export default function UsersPage() {
       <Dialog open={Boolean(provisioned)} onClose={() => setProvisioned(null)} fullWidth maxWidth="sm">
         <DialogTitle>订阅链接</DialogTitle>
         <DialogContent dividers>
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            链接只会显示这一次，请立即复制并妥善保存。
-          </Alert>
           <Stack spacing={2}>
             <Box>
               <Typography variant="caption" color="text.secondary">

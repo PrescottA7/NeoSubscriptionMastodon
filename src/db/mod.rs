@@ -50,9 +50,9 @@ pub async fn init_schema(conn: &DatabaseConnection) -> Result<(), DbErr> {
     let indexes = [
         Index::create()
             .if_not_exists()
-            .name("idx_users_token_hash")
+            .name("idx_users_token")
             .table(entities::users::Entity)
-            .col(entities::users::Column::TokenHash)
+            .col(entities::users::Column::Token)
             .unique()
             .to_owned(),
         Index::create()
@@ -83,7 +83,55 @@ pub async fn init_schema(conn: &DatabaseConnection) -> Result<(), DbErr> {
     )
     .await?;
 
+    ensure_column(
+        conn,
+        "users",
+        "token",
+        "ALTER TABLE users ADD COLUMN token TEXT NOT NULL DEFAULT ''",
+    )
+    .await?;
+
     migrate_legacy_credentials(conn).await?;
+    migrate_legacy_tokens(conn).await?;
+
+    Ok(())
+}
+
+/// Gives pre-`token` users a readable slug.
+///
+/// Older builds stored only a hash, so the original link cannot be recovered.
+/// Each affected user receives a generated slug instead, which the operator can
+/// then edit from the admin UI.
+async fn migrate_legacy_tokens(conn: &DatabaseConnection) -> Result<(), DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, FromQueryResult, Statement};
+
+    if conn.get_database_backend() != DatabaseBackend::Sqlite || !table_exists(conn, "users").await?
+    {
+        return Ok(());
+    }
+
+    #[derive(FromQueryResult)]
+    struct LegacyUser {
+        id: i64,
+    }
+
+    let rows = LegacyUser::find_by_statement(Statement::from_string(
+        DatabaseBackend::Sqlite,
+        "SELECT id FROM users WHERE token IS NULL OR token = ''".to_owned(),
+    ))
+    .all(conn)
+    .await?;
+
+    for row in rows {
+        let slug = crate::utils::random_secret();
+        conn.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            "UPDATE users SET token = ? WHERE id = ?",
+            [slug.into(), row.id.into()],
+        ))
+        .await?;
+        info!(user_id = row.id, "assigned a subscription slug to a legacy user");
+    }
 
     Ok(())
 }

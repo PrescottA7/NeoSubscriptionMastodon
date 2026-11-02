@@ -22,9 +22,10 @@ use axum::{
 };
 use serde_json::json;
 
-use crate::state::AppState;
+use crate::state::{AppState, RequestScope};
 
-/// Paths served by the admin single-page application.
+/// Paths served by the admin single-page application, relative to the admin
+/// prefix.
 const SPA_ROUTES: [&str; 3] = ["/", "/login", "/users"];
 
 /// The SPA also owns `/settings` and everything under `/nodes`, including deep
@@ -33,7 +34,8 @@ fn is_spa_route(path: &str) -> bool {
     SPA_ROUTES.contains(&path) || path == "/settings" || path.starts_with("/nodes")
 }
 
-pub fn routes(state: &AppState) -> Router<AppState> {
+/// The admin API, mounted under the admin prefix (the root by default).
+fn api_router(state: &AppState) -> Router<AppState> {
     Router::new()
         .merge(auth::routes(state))
         .merge(users::routes(state))
@@ -41,7 +43,44 @@ pub fn routes(state: &AppState) -> Router<AppState> {
         .merge(settings::routes(state))
         .merge(render::routes(state))
         .route("/api/health", get(health))
-        .fallback(dispatch)
+}
+
+pub fn routes(state: &AppState) -> Router<AppState> {
+    let prefix = state.admin_prefix().to_owned();
+    let hosts_hidden = state.config.subscription_host.is_some() || state.config.admin_host.is_some();
+
+    // An empty prefix keeps the historical root layout.
+    let api = if prefix.is_empty() {
+        api_router(state)
+    } else {
+        Router::new().nest(&prefix, api_router(state))
+    };
+
+    // Matched API routes bypass `dispatch`, so host scoping has to be enforced
+    // here as well; otherwise the admin API would answer on the subscription
+    // host.
+    let api = if hosts_hidden {
+        api.layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            reject_subscription_host,
+        ))
+    } else {
+        api
+    };
+
+    api.fallback(dispatch)
+}
+
+/// Answers 404 for admin routes reached through the subscription host.
+async fn reject_subscription_host(
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    if state.scope_for(request.headers()) != RequestScope::Admin {
+        return disguise(&state, &request.into_parts().0).await;
+    }
+    next.run(request).await
 }
 
 async fn health() -> Json<serde_json::Value> {
@@ -51,26 +90,81 @@ async fn health() -> Json<serde_json::Value> {
 /// Terminal handler for every path the router did not match.
 async fn dispatch(State(state): State<AppState>, request: Request<Body>) -> Response {
     let (parts, _body) = request.into_parts();
+    let scope = state.scope_for(&parts.headers);
+
+    // On a dedicated admin host the subscription prefix is never served; on a
+    // dedicated subscription host, or from an unrecognised host, the admin UI
+    // and API stay hidden.
+    if matches!(scope, RequestScope::Mixed | RequestScope::Subscription)
+        && let Some(response) = try_subscription(&state, &parts).await
+    {
+        return response;
+    }
+    if matches!(scope, RequestScope::Mixed | RequestScope::Admin)
+        && let Some(response) = try_admin(&state, &parts).await
+    {
+        return response;
+    }
+
+    disguise(&state, &parts).await
+}
+
+/// Serves a subscription request when the path sits under the prefix.
+async fn try_subscription(
+    state: &AppState,
+    parts: &axum::http::request::Parts,
+) -> Option<Response> {
     let path = parts.uri.path();
+    let prefix = state.subscription_prefix();
+
+    if path != prefix && !path.starts_with(&format!("{prefix}/")) {
+        return None;
+    }
+
+    let token = path[prefix.len()..].trim_start_matches('/');
+    Some(subscription::respond(state, parts.headers.clone(), parts.uri.query(), token).await)
+}
+
+/// Serves an API or SPA request when the path sits under the admin prefix.
+///
+/// Unknown paths return `None` so the caller can answer with the disguise page;
+/// claiming them here would make the admin area trivially discoverable.
+async fn try_admin(state: &AppState, parts: &axum::http::request::Parts) -> Option<Response> {
+    let path = parts.uri.path();
+    let prefix = state.admin_prefix();
+
+    let rest = if prefix.is_empty() {
+        path
+    } else if path == prefix {
+        "/"
+    } else if let Some(stripped) = path.strip_prefix(&format!("{prefix}/")) {
+        // Rebuild the rooted path so the checks below stay prefix-agnostic.
+        return admin_response(&format!("/{stripped}"), prefix).await;
+    } else {
+        return None;
+    };
+
+    admin_response(rest, prefix).await
+}
+
+async fn admin_response(rest: &str, prefix: &str) -> Option<Response> {
+    if rest.starts_with("/api/") {
+        return Some(api_not_found());
+    }
+
+    if is_admin_asset(rest) {
+        return Some(crate::static_content::serve_static(prefix, rest).await);
+    }
+
+    None
+}
+
+/// Answers a probe with the decoy page, or mirrors the sample site.
+async fn disguise(state: &AppState, parts: &axum::http::request::Parts) -> Response {
     let settings = state.settings_cached();
-    let prefix = settings.subscription_prefix.clone();
 
-    if path == prefix || path.starts_with(&format!("{prefix}/")) {
-        let token = path[prefix.len()..].trim_start_matches('/');
-        return subscription::respond(&state, parts.headers.clone(), parts.uri.query(), token).await;
-    }
-
-    if path.starts_with("/api/") {
-        return api_not_found();
-    }
-
-    if is_admin_asset(path) {
-        return crate::static_content::serve_static(parts.uri.clone()).await;
-    }
-
-    // Anything else is treated as a probe and answered with the decoy page.
     if parts.method == Method::GET || parts.method == Method::HEAD {
-        if let Some(response) = passthrough(&settings, &parts).await {
+        if let Some(response) = passthrough(&settings, parts).await {
             return response;
         }
         return state.disguise().not_found().await;
