@@ -492,6 +492,61 @@ async fn settings_control_the_subscription_prefix() {
 }
 
 #[tokio::test]
+async fn passthrough_settings_round_trip() {
+    let harness = harness().await;
+    let cookie = setup(&harness).await;
+
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::PUT,
+            "/api/settings",
+            json!({
+                "disguise_passthrough": true,
+                "disguise_template_url": "https://sample.example.com/",
+                "disguise_template_ip": "203.0.113.7",
+                "disguise_template_port": 8443,
+            }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let settings: Value = serde_json::from_str(&body).expect("json");
+    assert_eq!(settings["disguise_passthrough"], true);
+    assert_eq!(settings["disguise_template_url"], "https://sample.example.com/");
+    assert_eq!(settings["disguise_template_ip"], "203.0.113.7");
+    assert_eq!(settings["disguise_template_port"], 8443);
+
+    // A probe still answers 404 when the sample site cannot be reached.
+    let (status, body, _) = send(&harness, get_request("/some/probe", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert!(body.contains("404"), "{body}");
+}
+
+#[tokio::test]
+async fn passthrough_rejects_a_plain_http_template() {
+    let harness = harness().await;
+    let cookie = setup(&harness).await;
+
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::PUT,
+            "/api/settings",
+            json!({
+                "disguise_passthrough": true,
+                "disguise_template_url": "http://sample.example.com/",
+            }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.contains("disguise_template_url"), "{body}");
+}
+
+#[tokio::test]
 async fn admin_api_cannot_be_shadowed_by_the_prefix() {
     let harness = harness().await;
     let cookie = setup(&harness).await;

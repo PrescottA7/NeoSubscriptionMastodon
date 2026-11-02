@@ -53,7 +53,7 @@ async fn dispatch(State(state): State<AppState>, request: Request<Body>) -> Resp
     let (parts, _body) = request.into_parts();
     let path = parts.uri.path();
     let settings = state.settings_cached();
-    let prefix = settings.subscription_prefix;
+    let prefix = settings.subscription_prefix.clone();
 
     if path == prefix || path.starts_with(&format!("{prefix}/")) {
         let token = path[prefix.len()..].trim_start_matches('/');
@@ -70,9 +70,43 @@ async fn dispatch(State(state): State<AppState>, request: Request<Body>) -> Resp
 
     // Anything else is treated as a probe and answered with the decoy page.
     if parts.method == Method::GET || parts.method == Method::HEAD {
+        if let Some(response) = passthrough(&settings, &parts).await {
+            return response;
+        }
         return state.disguise().not_found().await;
     }
     state.disguise().not_found_empty()
+}
+
+/// Mirrors the probe from the configured sample site.
+///
+/// Returns `None` when pass-through is off or the upstream fails, in which case
+/// the caller falls back to the static disguise page. Failures are logged but
+/// never surfaced, so the client cannot tell the two paths apart.
+async fn passthrough(
+    settings: &crate::db::settings::AppSettings,
+    parts: &axum::http::request::Parts,
+) -> Option<Response> {
+    let path_and_query = parts
+        .uri
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/");
+    let target = crate::disguise_passthrough::Target::from_settings(settings, path_and_query)?;
+
+    // The static page has to honour the configured delay as well, otherwise the
+    // two branches would be distinguishable by response time.
+    if settings.failure_delay_ms > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(settings.failure_delay_ms)).await;
+    }
+
+    match target.mirror(&parts.method, &parts.headers).await {
+        Ok(mirror) => Some(crate::disguise_passthrough::to_response(mirror)),
+        Err(error) => {
+            tracing::debug!(%error, "disguise passthrough failed, serving the static page");
+            None
+        }
+    }
 }
 
 /// True for SPA routes and asset files belonging to the admin UI.

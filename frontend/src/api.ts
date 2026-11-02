@@ -323,6 +323,10 @@ export async function updateSettings(payload: {
   default_target?: string;
   failure_delay_ms?: number;
   site_name?: string;
+  disguise_passthrough?: boolean;
+  disguise_template_url?: string;
+  disguise_template_ip?: string;
+  disguise_template_port?: number;
 }): Promise<Settings> {
   const { data } = await http.put("/api/settings", payload);
   return SettingsSchema.parse(data);

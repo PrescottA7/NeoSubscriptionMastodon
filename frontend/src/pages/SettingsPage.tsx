@@ -6,9 +6,11 @@ import {
   Card,
   CardContent,
   Divider,
+  FormControlLabel,
   IconButton,
   InputAdornment,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from "@mui/material";
@@ -38,6 +40,11 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
   // Kept as a string so a cleared input does not turn into NaN on submit.
   const [delay, setDelay] = useState("0");
   const [disguise, setDisguise] = useState("");
+  const [passthrough, setPassthrough] = useState(false);
+  const [templateUrl, setTemplateUrl] = useState("");
+  const [templateIp, setTemplateIp] = useState("");
+  // Kept as a string for the same reason as `delay`.
+  const [templatePort, setTemplatePort] = useState("0");
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
@@ -55,6 +62,10 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
         setTarget(value.default_target);
         setDelay(String(value.failure_delay_ms));
         setDisguise(value.disguise_page);
+        setPassthrough(value.disguise_passthrough);
+        setTemplateUrl(value.disguise_template_url);
+        setTemplateIp(value.disguise_template_ip);
+        setTemplatePort(String(value.disguise_template_port));
       })
       .catch((err) =>
         dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "加载失败") })),
@@ -67,6 +78,10 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
       default_target: target,
       site_name: siteName,
       failure_delay_ms: delay,
+      disguise_passthrough: passthrough,
+      disguise_template_url: templateUrl,
+      disguise_template_ip: templateIp,
+      disguise_template_port: templatePort,
     });
     if (!isEmpty(errors)) {
       setFieldErrors(errors);
@@ -82,11 +97,19 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
         site_name: siteName.trim(),
         default_target: target,
         failure_delay_ms: Number(delay || "0"),
+        disguise_passthrough: passthrough,
+        disguise_template_url: templateUrl.trim(),
+        disguise_template_ip: templateIp.trim(),
+        disguise_template_port: Number(templatePort || "0"),
       });
       setSettings(updated);
       setPrefix(updated.subscription_prefix);
       setSiteName(updated.site_name);
       setDelay(String(updated.failure_delay_ms));
+      setPassthrough(updated.disguise_passthrough);
+      setTemplateUrl(updated.disguise_template_url);
+      setTemplateIp(updated.disguise_template_ip);
+      setTemplatePort(String(updated.disguise_template_port));
       dispatch(noticeAdded({ severity: "success", message: "设置已保存" }));
     } catch (err) {
       const serverErrors = getApiFieldErrors(err);
@@ -214,6 +237,60 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
               <Button variant="contained" disabled={saving} onClick={() => void handleSaveDisguise()}>
                 保存伪装页面
               </Button>
+            </Box>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
+              404 透传
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              开启后，伪装请求会转发到样板站并原样返回它的响应，上面的静态页面不再生效；
+              样板站不可达时自动回退到静态页面。
+            </Typography>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={passthrough}
+                  onChange={(event) => setPassthrough(event.target.checked)}
+                />
+              }
+              label="开启 404 透传"
+              sx={{ mb: 2 }}
+            />
+            <Box
+              sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
+            >
+              <TextField
+                size="small"
+                label="样板页地址"
+                placeholder="https://sample.example.com/"
+                value={templateUrl}
+                onChange={(event) => setTemplateUrl(event.target.value)}
+                error={Boolean(fieldErrors.disguise_template_url)}
+                helperText={fieldErrors.disguise_template_url ?? "必须是 https:// 地址"}
+                sx={{ gridColumn: { sm: "1 / -1" } }}
+              />
+              <TextField
+                size="small"
+                label="服务器 IP（可选）"
+                value={templateIp}
+                onChange={(event) => setTemplateIp(event.target.value)}
+                error={Boolean(fieldErrors.disguise_template_ip)}
+                helperText={fieldErrors.disguise_template_ip ?? "填写后跳过 DNS，直连该地址"}
+              />
+              <TextField
+                size="small"
+                type="number"
+                label="服务器端口（可选）"
+                value={templatePort}
+                onChange={(event) => setTemplatePort(event.target.value)}
+                error={Boolean(fieldErrors.disguise_template_port)}
+                helperText={fieldErrors.disguise_template_port ?? "0 表示使用地址中的端口"}
+                slotProps={{ htmlInput: { min: 0, max: 65535 } }}
+              />
             </Box>
           </CardContent>
         </Card>

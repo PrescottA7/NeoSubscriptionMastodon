@@ -427,6 +427,10 @@ export const SettingsSchema = z.object({
   failure_delay_ms: z.number(),
   site_name: z.string(),
   has_custom_disguise_page: z.boolean(),
+  disguise_passthrough: z.boolean(),
+  disguise_template_url: z.string(),
+  disguise_template_ip: z.string(),
+  disguise_template_port: z.number(),
   disguise_page: z.string(),
   available_cores: z.array(z.string()),
 });

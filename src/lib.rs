@@ -5,6 +5,7 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod disguise;
+pub mod disguise_passthrough;
 pub mod error;
 pub mod logging;
 pub mod protocol;

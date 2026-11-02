@@ -168,6 +168,10 @@ export function validateSettingsForm(form: {
   default_target: string;
   site_name: string;
   failure_delay_ms: string;
+  disguise_passthrough?: boolean;
+  disguise_template_url?: string;
+  disguise_template_ip?: string;
+  disguise_template_port?: string;
 }): FieldErrors {
   const errors: FieldErrors = {};
 
@@ -192,5 +196,45 @@ export function validateSettingsForm(form: {
     }
   }
 
+  const templateUrl = (form.disguise_template_url ?? "").trim();
+  if (templateUrl.length > 0) {
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(templateUrl);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed) {
+      errors.disguise_template_url = "样板页地址不是合法的 URL";
+    } else if (parsed.protocol !== "https:" || parsed.hostname.length === 0) {
+      errors.disguise_template_url = "样板页地址必须是 https:// 开头并包含域名";
+    }
+  } else if (form.disguise_passthrough) {
+    errors.disguise_template_url = "开启 404 透传前请先填写样板页地址";
+  }
+
+  const ip = (form.disguise_template_ip ?? "").trim();
+  if (ip.length > 0 && !isIpAddress(ip)) {
+    errors.disguise_template_ip = "服务器 IP 必须是合法地址";
+  }
+
+  const port = (form.disguise_template_port ?? "").trim();
+  if (port.length > 0) {
+    const value = Number(port);
+    if (!Number.isInteger(value) || value < 0 || value > 65_535) {
+      errors.disguise_template_port = "服务器端口必须在 0-65535 之间";
+    }
+  }
+
   return errors;
+}
+
+/** Accepts IPv4 and bracketed or bare IPv6 literals. */
+function isIpAddress(value: string): boolean {
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+  const match = ipv4.exec(value);
+  if (match) {
+    return match.slice(1).every((part) => Number(part) <= 255);
+  }
+  return value.includes(":") && /^[0-9a-fA-F:.]+$/.test(value);
 }

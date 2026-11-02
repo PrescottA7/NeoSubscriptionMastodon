@@ -19,6 +19,14 @@ pub const KEY_DEFAULT_TARGET: &str = "default_target";
 pub const KEY_FAILURE_DELAY_MS: &str = "failure_delay_ms";
 /// Key of the site name shown in the admin UI.
 pub const KEY_SITE_NAME: &str = "site_name";
+/// Key of the pass-through switch for the disguise page.
+pub const KEY_DISGUISE_PASSTHROUGH: &str = "disguise_passthrough";
+/// Key of the sample page the disguise pass-through mirrors.
+pub const KEY_DISGUISE_TEMPLATE_URL: &str = "disguise_template_url";
+/// Key of the dial IP that overrides DNS resolution for the sample page.
+pub const KEY_DISGUISE_TEMPLATE_IP: &str = "disguise_template_ip";
+/// Key of the dial port that overrides the URL port for the sample page.
+pub const KEY_DISGUISE_TEMPLATE_PORT: &str = "disguise_template_port";
 
 pub const DEFAULT_SUBSCRIPTION_PREFIX: &str = "/s";
 pub const DEFAULT_SITE_NAME: &str = "NSM";
@@ -31,6 +39,10 @@ pub struct AppSettings {
     pub failure_delay_ms: u64,
     pub site_name: String,
     pub has_custom_disguise_page: bool,
+    pub disguise_passthrough: bool,
+    pub disguise_template_url: String,
+    pub disguise_template_ip: String,
+    pub disguise_template_port: u16,
 }
 
 impl Default for AppSettings {
@@ -41,7 +53,18 @@ impl Default for AppSettings {
             failure_delay_ms: 0,
             site_name: DEFAULT_SITE_NAME.to_owned(),
             has_custom_disguise_page: false,
+            disguise_passthrough: false,
+            disguise_template_url: String::new(),
+            disguise_template_ip: String::new(),
+            disguise_template_port: 0,
         }
+    }
+}
+
+impl AppSettings {
+    /// True when the disguise page should be mirrored from the template URL.
+    pub fn passthrough_configured(&self) -> bool {
+        self.disguise_passthrough && !self.disguise_template_url.is_empty()
     }
 }
 
@@ -52,6 +75,10 @@ pub struct SettingsUpdate {
     pub default_target: Option<String>,
     pub failure_delay_ms: Option<u64>,
     pub site_name: Option<String>,
+    pub disguise_passthrough: Option<bool>,
+    pub disguise_template_url: Option<String>,
+    pub disguise_template_ip: Option<String>,
+    pub disguise_template_port: Option<u16>,
 }
 
 pub async fn list(conn: &DatabaseConnection) -> Result<Vec<Setting>, DbErr> {
@@ -117,6 +144,18 @@ pub async fn load(conn: &DatabaseConnection) -> Result<AppSettings, DbErr> {
             KEY_DISGUISE_PAGE => {
                 resolved.has_custom_disguise_page = !row.value.is_empty();
             }
+            KEY_DISGUISE_PASSTHROUGH => {
+                resolved.disguise_passthrough = row.value == "true" || row.value == "1";
+            }
+            KEY_DISGUISE_TEMPLATE_URL => {
+                resolved.disguise_template_url = row.value.trim().to_owned();
+            }
+            KEY_DISGUISE_TEMPLATE_IP => {
+                resolved.disguise_template_ip = row.value.trim().to_owned();
+            }
+            KEY_DISGUISE_TEMPLATE_PORT => {
+                resolved.disguise_template_port = row.value.parse().unwrap_or_default();
+            }
             _ => {}
         }
     }
@@ -156,6 +195,36 @@ pub async fn update(
             return Err(DbErr::Custom("site name cannot be empty".to_owned()));
         }
         set(conn, KEY_SITE_NAME, site_name).await?;
+    }
+
+    if let Some(enabled) = input.disguise_passthrough {
+        set(conn, KEY_DISGUISE_PASSTHROUGH, if enabled { "true" } else { "false" }).await?;
+    }
+
+    if let Some(url) = input.disguise_template_url.as_deref() {
+        let url = url.trim();
+        if url.is_empty() {
+            remove(conn, KEY_DISGUISE_TEMPLATE_URL).await?;
+        } else {
+            set(conn, KEY_DISGUISE_TEMPLATE_URL, url).await?;
+        }
+    }
+
+    if let Some(ip) = input.disguise_template_ip.as_deref() {
+        let ip = ip.trim();
+        if ip.is_empty() {
+            remove(conn, KEY_DISGUISE_TEMPLATE_IP).await?;
+        } else {
+            set(conn, KEY_DISGUISE_TEMPLATE_IP, ip).await?;
+        }
+    }
+
+    if let Some(port) = input.disguise_template_port {
+        if port == 0 {
+            remove(conn, KEY_DISGUISE_TEMPLATE_PORT).await?;
+        } else {
+            set(conn, KEY_DISGUISE_TEMPLATE_PORT, &port.to_string()).await?;
+        }
     }
 
     load(conn).await

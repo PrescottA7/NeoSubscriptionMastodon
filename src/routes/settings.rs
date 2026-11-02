@@ -123,6 +123,41 @@ fn validate_settings(payload: &SettingsUpdate) -> Result<(), RequestError> {
         );
     }
 
+    if let Some(url) = payload.disguise_template_url.as_deref() {
+        let trimmed = url.trim();
+        if !trimmed.is_empty() {
+            match url::Url::parse(trimmed) {
+                Ok(parsed) if parsed.scheme() == "https" && parsed.host_str().is_some() => {}
+                Ok(_) => validator.push(
+                    "disguise_template_url",
+                    "样板页地址必须是 https:// 开头并包含域名",
+                ),
+                Err(_) => validator.push("disguise_template_url", "样板页地址不是合法的 URL"),
+            }
+        }
+    }
+
+    if let Some(ip) = payload.disguise_template_ip.as_deref() {
+        let trimmed = ip.trim();
+        if !trimmed.is_empty() && trimmed.parse::<std::net::IpAddr>().is_err() {
+            validator.push("disguise_template_ip", "服务器 IP 必须是合法地址");
+        }
+    }
+
+    if payload.disguise_passthrough == Some(true) {
+        let url = payload
+            .disguise_template_url
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default();
+        // The toggle is only meaningful together with a sample URL.
+        validator.require(
+            !url.is_empty(),
+            "disguise_template_url",
+            "开启 404 透传前请先填写样板页地址",
+        );
+    }
+
     validator.finish()
 }
 
@@ -159,6 +194,10 @@ mod tests {
             default_target: target.map(str::to_owned),
             failure_delay_ms: None,
             site_name: site_name.map(str::to_owned),
+            disguise_passthrough: None,
+            disguise_template_url: None,
+            disguise_template_ip: None,
+            disguise_template_port: None,
         }
     }
 
@@ -185,5 +224,44 @@ mod tests {
     fn blank_site_name_is_rejected() {
         let error = validate_settings(&update(None, None, Some("  "))).expect_err("should fail");
         assert_eq!(error.fields()[0].field, "site_name");
+    }
+
+    fn passthrough(url: &str, ip: &str, enabled: bool) -> SettingsUpdate {
+        SettingsUpdate {
+            subscription_prefix: None,
+            default_target: None,
+            failure_delay_ms: None,
+            site_name: None,
+            disguise_passthrough: Some(enabled),
+            disguise_template_url: Some(url.to_owned()),
+            disguise_template_ip: Some(ip.to_owned()),
+            disguise_template_port: None,
+        }
+    }
+
+    #[test]
+    fn passthrough_accepts_an_https_template() {
+        assert!(validate_settings(&passthrough("https://sample.example.com/", "", true)).is_ok());
+    }
+
+    #[test]
+    fn passthrough_rejects_a_plain_http_template() {
+        let error = validate_settings(&passthrough("http://sample.example.com/", "", true))
+            .expect_err("should fail");
+        assert_eq!(error.fields()[0].field, "disguise_template_url");
+    }
+
+    #[test]
+    fn passthrough_needs_a_url_when_enabled() {
+        let error = validate_settings(&passthrough("  ", "", true)).expect_err("should fail");
+        assert_eq!(error.fields()[0].field, "disguise_template_url");
+    }
+
+    #[test]
+    fn a_bad_override_ip_is_rejected() {
+        let error =
+            validate_settings(&passthrough("https://sample.example.com/", "not-an-ip", true))
+                .expect_err("should fail");
+        assert_eq!(error.fields()[0].field, "disguise_template_ip");
     }
 }

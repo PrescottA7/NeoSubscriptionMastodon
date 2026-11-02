@@ -216,4 +216,50 @@ describe("validateSettingsForm", () => {
     ).toBeTruthy();
     expect(isEmpty(validateSettingsForm({ ...base, failure_delay_ms: "5000" }))).toBe(true);
   });
+
+  it("requires a https template url when pass-through is on", () => {
+    expect(
+      validateSettingsForm({ ...base, disguise_passthrough: true }).disguise_template_url,
+    ).toBe("开启 404 透传前请先填写样板页地址");
+  });
+
+  it("rejects a plain http template url", () => {
+    expect(
+      validateSettingsForm({
+        ...base,
+        disguise_passthrough: true,
+        disguise_template_url: "http://sample.example.com/",
+      }).disguise_template_url,
+    ).toBe("样板页地址必须是 https:// 开头并包含域名");
+  });
+
+  it("accepts a valid template url and override", () => {
+    expect(
+      isEmpty(
+        validateSettingsForm({
+          ...base,
+          disguise_passthrough: true,
+          disguise_template_url: "https://sample.example.com/",
+          disguise_template_ip: "203.0.113.7",
+          disguise_template_port: "8443",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a malformed override ip and port", () => {
+    const errors = validateSettingsForm({
+      ...base,
+      disguise_template_ip: "sample.example.com",
+      disguise_template_port: "70000",
+    });
+    expect(errors.disguise_template_ip).toBe("服务器 IP 必须是合法地址");
+    expect(errors.disguise_template_port).toBe("服务器端口必须在 0-65535 之间");
+  });
+
+  it("accepts an ipv6 override", () => {
+    expect(
+      validateSettingsForm({ ...base, disguise_template_ip: "2001:db8::1" }).disguise_template_ip,
+    ).toBeUndefined();
+  });
 });

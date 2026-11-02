@@ -61,7 +61,7 @@ impl Disguise {
 }
 
 /// Removes headers that reveal the real stack.
-fn strip_identifying_headers(response: &mut Response) {
+pub fn strip_identifying_headers(response: &mut Response) {
     for name in ["x-powered-by", "server", "x-aspnet-version", "via"] {
         response.headers_mut().remove(name);
     }
