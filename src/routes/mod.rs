@@ -137,11 +137,10 @@ async fn try_admin(state: &AppState, parts: &axum::http::request::Parts) -> Opti
         path
     } else if path == prefix {
         "/"
-    } else if let Some(stripped) = path.strip_prefix(&format!("{prefix}/")) {
+    } else {
+        let stripped = path.strip_prefix(&format!("{prefix}/"))?;
         // Rebuild the rooted path so the checks below stay prefix-agnostic.
         return admin_response(&format!("/{stripped}"), prefix).await;
-    } else {
-        return None;
     };
 
     admin_response(rest, prefix).await
