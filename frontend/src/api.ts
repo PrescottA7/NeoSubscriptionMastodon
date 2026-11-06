@@ -9,6 +9,7 @@
 
 import axios from "axios";
 
+import i18n from "./i18n";
 import {
   AdminSchema,
   CredentialSchema,
@@ -75,26 +76,52 @@ export function isUnauthorizedError(error: unknown): boolean {
 
 export type FieldError = {
   field: string;
+  /** Machine-readable code, when the server provides one. */
+  code?: string;
   message: string;
 };
 
 export type ApiErrorPayload = {
   error: string;
+  code?: string;
   details?: FieldError[];
   request_id?: string;
 };
 
+/** Maps a server error code onto an `errors.*` translation key. */
+function messageForCode(code: string | undefined): string | null {
+  if (!code) {
+    return null;
+  }
+  const key = `errors.${camelCase(code)}`;
+  return i18n.exists(key) ? i18n.t(key) : null;
+}
+
+function camelCase(value: string): string {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part, index) => (index === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join("");
+}
+
 /**
  * Extracts the human-readable message from an API failure.
  *
- * The backend always sends `{ error }`, optionally with `details` for
- * field-level validation problems. Falls back to the axios message, and only
- * then to the caller's default, so the user always sees *something* specific.
+ * The backend sends `{ error, code }`; the code is translated so the UI follows
+ * the user's language even though the server only speaks English. The English
+ * message remains the fallback for codes this build does not know yet.
  */
 export function getApiErrorMessage(error: unknown, fallback: string): string {
   const payload = getApiErrorPayload(error);
-  if (payload?.error) {
-    return payload.error;
+  if (payload) {
+    const translated = messageForCode(payload.code);
+    if (translated) {
+      return translated;
+    }
+    if (payload.error) {
+      return payload.error;
+    }
   }
 
   if (typeof error === "object" && error !== null) {
@@ -104,7 +131,7 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
         return response.data;
       }
       if (response?.status) {
-        return `${fallback}（HTTP ${response.status}）`;
+        return i18n.t("errors.httpStatus", { fallback, status: response.status });
       }
     }
     if (error instanceof Error && error.message) {
@@ -121,7 +148,7 @@ export function getApiFieldErrors(error: unknown): Record<string, string> {
   for (const detail of payload?.details ?? []) {
     // Keep the first message per field; later ones are usually duplicates.
     if (!map[detail.field]) {
-      map[detail.field] = detail.message;
+      map[detail.field] = messageForCode(detail.code) ?? detail.message;
     }
   }
   return map;
@@ -141,6 +168,7 @@ export function getApiErrorPayload(error: unknown): ApiErrorPayload | null {
   }
   return {
     error: payload.error,
+    code: typeof payload.code === "string" ? payload.code : undefined,
     details: Array.isArray(payload.details) ? payload.details : undefined,
     request_id: payload.request_id,
   };

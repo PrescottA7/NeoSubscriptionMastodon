@@ -10,6 +10,7 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 
 import { listNodes, listProtocols, listUsers } from "../api";
+import i18n from "../i18n";
 import type { Node, ProtocolDescriptor, User } from "../types";
 
 type CatalogState = {
@@ -75,7 +76,7 @@ const catalogSlice = createSlice({
       })
       .addCase(loadCatalog.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error.message ?? "加载数据失败";
+        state.error = action.error.message ?? i18n.t("common.loadFailed");
       });
   },
 });

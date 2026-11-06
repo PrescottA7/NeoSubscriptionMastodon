@@ -25,8 +25,7 @@ use crate::validate::Validator;
 fn slug_error(error: SlugError) -> RequestError {
     match error {
         SlugError::Taken(slug) => RequestError::validation(vec![FieldError {
-            field: "token".to_owned(),
-            message: format!("订阅路径 “{slug}” 已被占用"),
+            field: "token".to_owned(),            code: Some(crate::error::ErrorCode::Conflict),            message: format!("Subscription path \"{slug}\" is already taken"),
         }]),
         SlugError::Exhausted => RequestError::internal(crate::error::internal(error.to_string())),
         SlugError::Db(inner) => RequestError::internal(inner.into()),
@@ -91,7 +90,7 @@ async fn get_user(
     users::get(&state.db, id)
         .await?
         .map(|user| Json(UserView::new(&state, user)))
-        .ok_or_else(|| RequestError::not_found(format!("用户 {id} 不存在")))
+        .ok_or_else(|| RequestError::not_found(format!("User {id} not found")))
 }
 
 async fn create_user(
@@ -128,20 +127,20 @@ async fn update_user(
         .await
         .map_err(slug_error)?
         .map(|user| Json(UserView::new(&state, user)))
-        .ok_or_else(|| RequestError::not_found(format!("用户 {id} 不存在")))
+        .ok_or_else(|| RequestError::not_found(format!("User {id} not found")))
 }
 
 /// Rule set mirrored by `frontend/src/validation.ts::validateUserForm`.
 fn validate_new_user(payload: &NewUser) -> Result<(), RequestError> {
     let mut validator = Validator::new();
-    validator.optional_text("remark", "备注", Some(payload.remark.as_str()), 64);
+    validator.optional_text("remark", "Remark", Some(payload.remark.as_str()), 64);
     validate_slug(&mut validator, payload.token.as_deref());
     validator.finish()
 }
 
 fn validate_user_update(payload: &UpdateUser) -> Result<(), RequestError> {
     let mut validator = Validator::new();
-    validator.optional_text("remark", "备注", payload.remark.as_deref(), 64);
+    validator.optional_text("remark", "Remark", payload.remark.as_deref(), 64);
     validate_slug(&mut validator, payload.token.as_deref());
     validator.finish()
 }
@@ -153,13 +152,13 @@ fn validate_slug(validator: &mut Validator, token: Option<&str>) {
         return;
     };
 
-    validator.require(token.len() <= 64, "token", "订阅路径最多 64 个字符");
+    validator.require(token.len() <= 64, "token", "Subscription path must be at most 64 characters");
     validator.require(
         token
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
         "token",
-        "订阅路径只能包含字母、数字、- 和 _",
+        "Subscription path can only contain letters, numbers, - and _",
     );
 }
 
@@ -170,7 +169,7 @@ async fn delete_user(
     if users::delete(&state.db, id).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(RequestError::not_found(format!("用户 {id} 不存在")))
+        Err(RequestError::not_found(format!("User {id} not found")))
     }
 }
 
@@ -182,7 +181,7 @@ async fn reset_link(
     let (user, token) = users::reset_token(&state.db, id)
         .await
         .map_err(slug_error)?
-        .ok_or_else(|| RequestError::not_found(format!("用户 {id} 不存在")))?;
+        .ok_or_else(|| RequestError::not_found(format!("User {id} not found")))?;
     let prefix = state.subscription_prefix();
 
     Ok(Json(ProvisionedUser {

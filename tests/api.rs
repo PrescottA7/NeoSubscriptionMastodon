@@ -958,7 +958,7 @@ async fn duplicate_subscription_paths_are_rejected() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert!(body.contains("已被占用"), "{body}");
+    assert!(body.contains("already taken"), "{body}");
 }
 
 #[tokio::test]
@@ -979,7 +979,7 @@ async fn subscription_paths_reject_url_syntax() {
         .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {body}");
         assert!(
-            body.contains("token") || body.contains("订阅路径"),
+            body.contains("token") || body.contains("Subscription path"),
             "{bad}: {body}"
         );
     }
@@ -1169,7 +1169,7 @@ async fn malformed_body_returns_a_readable_error() {
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(body.contains("error"), "{body}");
-    assert!(body.contains("请求数据格式不正确"), "{body}");
+    assert!(body.contains("Malformed request"), "{body}");
     assert!(body.contains("port"), "{body}");
     // The serde type names are internal and must not reach the client.
     assert!(!body.contains("u16"), "{body}");
@@ -1239,7 +1239,7 @@ async fn overlong_remark_is_rejected_with_a_field_name() {
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(body.contains("\"field\":\"remark\""), "{body}");
-    assert!(body.contains("备注最多"), "{body}");
+    assert!(body.contains("at most 64 characters"), "{body}");
 }
 
 #[tokio::test]
@@ -1571,7 +1571,7 @@ async fn generating_credentials_avoids_duplicates() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert!(body.contains("只能有一组凭据"), "{body}");
+    assert!(body.contains("one credential per node"), "{body}");
 }
 
 #[tokio::test]
@@ -1766,7 +1766,7 @@ async fn server_config_is_optional() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(body.contains("服务端配置"), "{body}");
+    assert!(body.contains("server configuration"), "{body}");
 }
 
 #[tokio::test]

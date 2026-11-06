@@ -26,6 +26,7 @@ import {
   Typography,
 } from "@mui/material";
 import { Add, ExpandMore } from "@mui/icons-material";
+import { useTranslation } from "react-i18next";
 
 import type { Mux, Transport, XhttpMode } from "../types";
 import { defaultTransport, TRANSPORTS } from "./transportDefaults";
@@ -41,20 +42,24 @@ export function TransportSection({
   mux: Mux;
   onMuxChange: (next: Mux) => void;
 }) {
+  const { t } = useTranslation();
+  
   return (
     <Accordion disableGutters>
       <AccordionSummary expandIcon={<ExpandMore />}>
-        <Typography sx={{ flexGrow: 1 }}>传输层</Typography>
+        <Typography sx={{ flexGrow: 1 }}>{t("transport.title")}</Typography>
         <Typography variant="caption" color="text.secondary">
-          {TRANSPORTS.find((item) => item.value === transport.kind)?.label}
+          {TRANSPORTS.find((item) => item.value === transport.kind)
+            ? t(TRANSPORTS.find((item) => item.value === transport.kind)!.labelKey)
+            : transport.kind}
         </Typography>
       </AccordionSummary>
       <AccordionDetails>
         <Stack spacing={2}>
           <FormControl size="small" fullWidth>
-            <InputLabel>传输方式</InputLabel>
+            <InputLabel>{t("transport.transportMethod")}</InputLabel>
             <Select
-              label="传输方式"
+              label={t("transport.transportMethod")}
               value={transport.kind}
               onChange={(event) =>
                 onChange(defaultTransport(event.target.value as Transport["kind"]))
@@ -62,7 +67,7 @@ export function TransportSection({
             >
               {TRANSPORTS.map((item) => (
                 <MenuItem key={item.value} value={item.value}>
-                  {item.label}
+                  {t(item.labelKey)}
                 </MenuItem>
               ))}
             </Select>
@@ -70,15 +75,15 @@ export function TransportSection({
 
           {transport.kind === "tcp" && (
             <FormControl size="small" fullWidth>
-              <InputLabel>伪装头</InputLabel>
+              <InputLabel>{t("transport.header")}</InputLabel>
               <Select
-                label="伪装头"
+                label={t("transport.header")}
                 value={transport.header_type}
                 onChange={(event) =>
                   onChange({ ...transport, header_type: event.target.value as "none" | "http" })
                 }
               >
-                <MenuItem value="none">无</MenuItem>
+                <MenuItem value="none">{t("transport.none")}</MenuItem>
                 <MenuItem value="http">HTTP</MenuItem>
               </Select>
             </FormControl>
@@ -88,20 +93,20 @@ export function TransportSection({
             <Stack spacing={2}>
               <TextField
                 size="small"
-                label="路径"
+                label={t("transport.path")}
                 value={transport.path ?? ""}
                 onChange={(event) => onChange({ ...transport, path: event.target.value })}
               />
               <TextField
                 size="small"
-                label="Host"
+                label={t("transport.host")}
                 value={transport.host ?? ""}
                 onChange={(event) => onChange({ ...transport, host: event.target.value })}
               />
               <TextField
                 size="small"
                 type="number"
-                label="Early Data 字节"
+                label={t("transport.earlyData")}
                 value={transport.max_early_data ?? ""}
                 onChange={(event) =>
                   onChange({
@@ -109,16 +114,16 @@ export function TransportSection({
                     max_early_data: event.target.value === "" ? null : Number(event.target.value),
                   })
                 }
-                helperText="常见值 2048，留空关闭"
+                helperText={t("transport.earlyDataHelper")}
               />
               <TextField
                 size="small"
-                label="Early Data 头名"
+                label={t("transport.earlyDataHeaderName")}
                 value={transport.early_data_header_name ?? ""}
                 onChange={(event) =>
                   onChange({ ...transport, early_data_header_name: event.target.value })
                 }
-                helperText="Xray 默认 Sec-WebSocket-Protocol"
+                helperText={t("transport.earlyDataHeaderHelper")}
               />
             </Stack>
           )}
@@ -127,20 +132,20 @@ export function TransportSection({
             <Stack spacing={2}>
               <TextField
                 size="small"
-                label="Service Name"
+                label={t("transport.serviceName")}
                 value={transport.service_name ?? ""}
                 onChange={(event) => onChange({ ...transport, service_name: event.target.value })}
               />
               <TextField
                 size="small"
-                label="模式"
+                label={t("transport.mode")}
                 value={transport.mode ?? ""}
                 onChange={(event) => onChange({ ...transport, mode: event.target.value })}
-                helperText="gun / multi / guna，留空为默认"
+                helperText={t("transport.modeHelper")}
               />
               <TextField
                 size="small"
-                label="Authority"
+                label={t("transport.authority")}
                 value={transport.authority ?? ""}
                 onChange={(event) => onChange({ ...transport, authority: event.target.value })}
               />
@@ -151,7 +156,7 @@ export function TransportSection({
             <Stack spacing={2}>
               <TextField
                 size="small"
-                label="Host 列表"
+                label={t("transport.hostList")}
                 value={transport.host.join(",")}
                 onChange={(event) =>
                   onChange({
@@ -162,20 +167,20 @@ export function TransportSection({
                       .filter((item) => item.length > 0),
                   })
                 }
-                helperText="逗号分隔"
+                helperText={t("transport.hostListHelper")}
               />
               <TextField
                 size="small"
-                label="路径"
+                label={t("transport.path")}
                 value={transport.path ?? ""}
                 onChange={(event) => onChange({ ...transport, path: event.target.value })}
               />
               <TextField
                 size="small"
-                label="方法"
+                label={t("transport.method")}
                 value={transport.method ?? ""}
                 onChange={(event) => onChange({ ...transport, method: event.target.value })}
-                helperText="留空为默认 GET"
+                helperText={t("transport.methodHelper")}
               />
             </Stack>
           )}
@@ -184,13 +189,13 @@ export function TransportSection({
             <Stack spacing={2}>
               <TextField
                 size="small"
-                label="路径"
+                label={t("transport.path")}
                 value={transport.path ?? ""}
                 onChange={(event) => onChange({ ...transport, path: event.target.value })}
               />
               <TextField
                 size="small"
-                label="Host"
+                label={t("transport.host")}
                 value={transport.host ?? ""}
                 onChange={(event) => onChange({ ...transport, host: event.target.value })}
               />
@@ -207,14 +212,14 @@ export function TransportSection({
                   onChange={(event) => onMuxChange({ ...mux, enabled: event.target.checked })}
                 />
               }
-              label="启用多路复用"
+              label={t("transport.enableMux")}
             />
             {mux.enabled && (
               <>
                 <FormControl size="small" sx={{ minWidth: 140 }}>
-                  <InputLabel>协议</InputLabel>
+                  <InputLabel>{t("transport.protocol")}</InputLabel>
                   <Select
-                    label="协议"
+                    label={t("transport.protocol")}
                     value={mux.protocol}
                     onChange={(event) =>
                       onMuxChange({
@@ -231,7 +236,7 @@ export function TransportSection({
                 <TextField
                   size="small"
                   type="number"
-                  label="最大并发流"
+                  label={t("transport.maxStreams")}
                   value={mux.max_streams ?? ""}
                   sx={{ width: 140 }}
                   onChange={(event) =>
@@ -248,7 +253,7 @@ export function TransportSection({
                       onChange={(event) => onMuxChange({ ...mux, padding: event.target.checked })}
                     />
                   }
-                  label="填充"
+                  label={t("transport.padding")}
                 />
               </>
             )}
@@ -266,6 +271,8 @@ function XhttpEditor({
   transport: Extract<Transport, { kind: "xhttp" }>;
   onChange: (next: Transport) => void;
 }) {
+  const { t } = useTranslation();
+  
   const extra = transport.extra ?? {};
 
   function patchExtra(next: Partial<NonNullable<typeof transport.extra>>) {
@@ -282,20 +289,20 @@ function XhttpEditor({
     <Stack spacing={2}>
       <TextField
         size="small"
-        label="路径"
+        label={t("transport.path")}
         value={transport.path ?? ""}
         onChange={(event) => onChange({ ...transport, path: event.target.value })}
       />
       <TextField
         size="small"
-        label="Host"
+        label={t("transport.host")}
         value={transport.host ?? ""}
         onChange={(event) => onChange({ ...transport, host: event.target.value })}
       />
       <FormControl size="small" fullWidth>
-        <InputLabel>模式</InputLabel>
+        <InputLabel>{t("transport.xhttpMode")}</InputLabel>
         <Select
-          label="模式"
+          label={t("transport.xhttpMode")}
           value={transport.mode}
           onChange={(event) => onChange({ ...transport, mode: event.target.value as XhttpMode })}
         >
@@ -307,10 +314,10 @@ function XhttpEditor({
       </FormControl>
 
       <Typography variant="subtitle2" color="text.secondary">
-        extra 参数
+        {t("transport.xhttpExtra")}
       </Typography>
       <Typography variant="caption" color="text.secondary">
-        字段名与 Xray 的 SplitHTTPConfig 一一对应，导出时自动转成 camelCase。
+        {t("transport.xhttpExtraHelper")}
       </Typography>
       <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap" }}>
         <TextField
@@ -319,7 +326,7 @@ function XhttpEditor({
           value={extra.x_padding_bytes ?? ""}
           sx={{ minWidth: 200 }}
           onChange={(event) => patchExtra({ x_padding_bytes: event.target.value })}
-          helperText="例如 100-1000"
+          helperText={t("transport.paddingBytesHelper")}
         />
         <TextField
           size="small"
@@ -343,7 +350,7 @@ function XhttpEditor({
           sx={{ minWidth: 180 }}
           onChange={(event) => patchExtra({ x_padding_placement: event.target.value })}
         >
-          <MenuItem value="">默认</MenuItem>
+          <MenuItem value="">{t("transport.defaultOption")}</MenuItem>
           <MenuItem value="cookie">cookie</MenuItem>
           <MenuItem value="header">header</MenuItem>
           <MenuItem value="query">query</MenuItem>
@@ -357,7 +364,7 @@ function XhttpEditor({
           sx={{ minWidth: 160 }}
           onChange={(event) => patchExtra({ x_padding_method: event.target.value })}
         >
-          <MenuItem value="">默认</MenuItem>
+          <MenuItem value="">{t("transport.defaultOption")}</MenuItem>
           <MenuItem value="repeat-x">repeat-x</MenuItem>
           <MenuItem value="tokenish">tokenish</MenuItem>
         </TextField>
@@ -369,7 +376,7 @@ function XhttpEditor({
           sx={{ minWidth: 160 }}
           onChange={(event) => patchExtra({ uplink_http_method: event.target.value })}
         >
-          <MenuItem value="">默认</MenuItem>
+          <MenuItem value="">{t("transport.defaultOption")}</MenuItem>
           <MenuItem value="POST">POST</MenuItem>
           <MenuItem value="PUT">PUT</MenuItem>
           <MenuItem value="GET">GET</MenuItem>
@@ -463,7 +470,7 @@ function XhttpEditor({
       </Stack>
 
       <Typography variant="subtitle2" color="text.secondary">
-        XMUX
+        {t("transport.xmux")}
       </Typography>
       <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap" }}>
         <TextField
@@ -539,6 +546,7 @@ function HeaderEditor({
 }) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
+  const { t } = useTranslation();
   const entries = Object.entries(headers);
 
   function add() {
@@ -560,13 +568,18 @@ function HeaderEditor({
   return (
     <Stack spacing={1}>
       <Typography variant="subtitle2" color="text.secondary">
-        额外请求头
+        {t("transport.extraHeaders")}
       </Typography>
       {entries.map(([key, headerValue]) => (
         <Box key={key} sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-          <TextField size="small" label="名称" value={key} disabled sx={{ flex: 1 }} />
-          <TextField size="small" label="值" value={headerValue} disabled sx={{ flex: 2 }} />
-          <IconButton size="small" color="error" onClick={() => remove(key)} aria-label="删除请求头">
+          <TextField size="small" label={t("transport.headerName")} value={key} disabled sx={{ flex: 1 }} />
+          <TextField size="small" label={t("transport.headerValue")} value={headerValue} disabled sx={{ flex: 2 }} />
+          <IconButton
+            size="small"
+            color="error"
+            onClick={() => remove(key)}
+            aria-label={t("transport.removeHeader")}
+          >
             ×
           </IconButton>
         </Box>
@@ -574,20 +587,20 @@ function HeaderEditor({
       <Stack direction="row" spacing={1}>
         <TextField
           size="small"
-          label="名称"
+          label={t("transport.headerName")}
           value={name}
           onChange={(event) => setName(event.target.value)}
           sx={{ flex: 1 }}
         />
         <TextField
           size="small"
-          label="值"
+          label={t("transport.headerValue")}
           value={value}
           onChange={(event) => setValue(event.target.value)}
           sx={{ flex: 2 }}
         />
         <Button size="small" variant="outlined" startIcon={<Add />} onClick={add}>
-          添加
+          {t("common.add")}
         </Button>
       </Stack>
     </Stack>

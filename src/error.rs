@@ -16,16 +16,56 @@ use tracing::error;
 
 pub type RequestResult<T> = Result<T, RequestError>;
 
+/// Machine-readable error codes.
+///
+/// Every response the UI may show to a human carries one of these, so the
+/// frontend can render a translated message instead of the English fallback.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ErrorCode {
+    InternalServerError,
+    Unauthorized,
+    Forbidden,
+    NotFound,
+    BadRequest,
+    Conflict,
+    ValidationFailed,
+    InvalidCredentials,
+    InvalidUuid,
+    InvalidPort,
+    InvalidPortRange,
+    InvalidDuration,
+    FieldRequired,
+    TooShort,
+    TooLong,
+    InvalidFormat,
+    InvalidHost,
+    DuplicateEntry,
+    TlsRequired,
+    RealityNotSupported,
+    UnsupportedCore,
+    UnsupportedProtocol,
+    NoUsers,
+    NoNodes,
+    NoCredentials,
+    NodeNotFound,
+    MissingServerConfig,
+    MalformedRequest,
+}
+
 /// Message returned for unexpected failures. Deliberately generic: a 500 body
 /// must never expose SQL, file paths, or internal identifiers.
-pub const INTERNAL_MESSAGE: &str = "服务器内部错误，请稍后重试";
+pub const INTERNAL_MESSAGE: &str = "Internal server error, please try again later";
 
 /// A single field-level problem, so the UI can point at the offending input.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FieldError {
     /// Dotted path of the offending value, e.g. `port` or `params.tls.server_name`.
     pub field: String,
-    /// Human readable, already localised description.
+    /// Error code for client-side translation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<ErrorCode>,
+    /// Human readable English message (fallback)
     pub message: String,
 }
 
@@ -33,6 +73,15 @@ impl FieldError {
     pub fn new(field: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             field: field.into(),
+            code: None,
+            message: message.into(),
+        }
+    }
+
+    pub fn with_code(field: impl Into<String>, code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            field: field.into(),
+            code: Some(code),
             message: message.into(),
         }
     }
@@ -42,12 +91,15 @@ impl FieldError {
 ///
 /// - `error` is always safe to show: either an explicitly chosen message or the
 ///   generic [`INTERNAL_MESSAGE`].
+/// - `code` provides a translatable error code for the client.
 /// - `details` carries per-field validation problems, omitted when empty.
 /// - `request_id` lets an operator correlate a user report with the server log,
 ///   which holds the real cause.
 #[derive(Serialize)]
 struct ErrorBody {
     error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<ErrorCode>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     details: Vec<FieldError>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -103,28 +155,32 @@ impl RequestError {
     // ---- public errors: the message is intended for the client ----
 
     pub fn bad_request(message: impl Into<String>) -> Self {
-        Self::public(StatusCode::BAD_REQUEST, message)
+        Self::public_with_code(StatusCode::BAD_REQUEST, ErrorCode::BadRequest, message)
     }
 
     pub fn unauthorized(message: impl Into<String>) -> Self {
-        Self::public(StatusCode::UNAUTHORIZED, message)
+        Self::public_with_code(StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized, message)
     }
 
     pub fn forbidden(message: impl Into<String>) -> Self {
-        Self::public(StatusCode::FORBIDDEN, message)
+        Self::public_with_code(StatusCode::FORBIDDEN, ErrorCode::Forbidden, message)
     }
 
     pub fn not_found(message: impl Into<String>) -> Self {
-        Self::public(StatusCode::NOT_FOUND, message)
+        Self::public_with_code(StatusCode::NOT_FOUND, ErrorCode::NotFound, message)
     }
 
     pub fn conflict(message: impl Into<String>) -> Self {
-        Self::public(StatusCode::CONFLICT, message)
+        Self::public_with_code(StatusCode::CONFLICT, ErrorCode::Conflict, message)
     }
 
     /// A message that is deliberately shown to the user, for any status.
     pub fn public(status: StatusCode, message: impl Into<String>) -> Self {
-        Self::body(status, message.into(), Vec::new())
+        Self::body(status, message.into(), None, Vec::new())
+    }
+
+    pub fn public_with_code(status: StatusCode, code: ErrorCode, message: impl Into<String>) -> Self {
+        Self::body(status, message.into(), Some(code), Vec::new())
     }
 
     /// Convenience for malformed bodies; keeps axum's status but normalises the
@@ -138,10 +194,10 @@ impl RequestError {
     pub fn validation(details: Vec<FieldError>) -> Self {
         let summary = match details.first() {
             Some(first) if details.len() == 1 => first.message.clone(),
-            Some(first) => format!("{}（共 {} 项）", first.message, details.len()),
-            None => "请求参数不合法".to_owned(),
+            Some(first) => format!("{} ({} fields)", first.message, details.len()),
+            None => "Validation failed".to_owned(),
         };
-        Self::body(StatusCode::UNPROCESSABLE_ENTITY, summary, details)
+        Self::body(StatusCode::UNPROCESSABLE_ENTITY, summary, Some(ErrorCode::ValidationFailed), details)
     }
 
     // ---- internal errors: the message is logged, never returned ----
@@ -151,11 +207,11 @@ impl RequestError {
     pub fn internal(cause: anyhow::Error) -> Self {
         let request_id: String = crate::utils::random_secret().chars().take(8).collect();
 
-        // Full detail goes to the log only.
         error!(%request_id, error = %format!("{cause:#}"), "request failed");
 
         let body = ErrorBody {
             error: INTERNAL_MESSAGE.to_owned(),
+            code: Some(ErrorCode::InternalServerError),
             details: Vec::new(),
             request_id: Some(request_id),
         };
@@ -167,7 +223,7 @@ impl RequestError {
         }
     }
 
-    fn body(status: StatusCode, message: String, details: Vec<FieldError>) -> Self {
+    fn body(status: StatusCode, message: String, code: Option<ErrorCode>, details: Vec<FieldError>) -> Self {
         Self {
             cause: None,
             fields: details.clone(),
@@ -176,6 +232,7 @@ impl RequestError {
                     status,
                     Json(ErrorBody {
                         error: message,
+                        code,
                         details,
                         request_id: None,
                     }),
@@ -226,22 +283,22 @@ mod tests {
 
     #[tokio::test]
     async fn validation_returns_details() {
-        let error = RequestError::validation(vec![FieldError::new("port", "端口不能为空")]);
+        let error = RequestError::validation(vec![FieldError::new("port", "Port is required")]);
         let (status, body) = body_of(error.into_response()).await;
 
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert!(body.contains("\"field\":\"port\""), "{body}");
-        assert!(body.contains("端口不能为空"), "{body}");
+        assert!(body.contains("Port is required"), "{body}");
     }
 
     #[tokio::test]
     async fn validation_summarises_multiple_fields() {
         let error = RequestError::validation(vec![
-            FieldError::new("name", "名称不能为空"),
-            FieldError::new("port", "端口不合法"),
+            FieldError::new("name", "Name is required"),
+            FieldError::new("port", "Invalid port"),
         ]);
         let (_, body) = body_of(error.into_response()).await;
-        assert!(body.contains("共 2 项"), "{body}");
+        assert!(body.contains("2 fields"), "{body}");
     }
 
     #[tokio::test]
@@ -257,8 +314,20 @@ mod tests {
 
     #[tokio::test]
     async fn public_messages_are_returned_verbatim() {
-        let (status, body) = body_of(RequestError::conflict("已存在").into_response()).await;
+        let (status, body) = body_of(RequestError::conflict("Already exists").into_response()).await;
         assert_eq!(status, StatusCode::CONFLICT);
-        assert!(body.contains("已存在"), "{body}");
+        assert!(body.contains("Already exists"), "{body}");
+        assert!(body.contains("\"code\":\"CONFLICT\""), "{body}");
+    }
+
+    #[tokio::test]
+    async fn field_errors_carry_a_translatable_code() {
+        let error = RequestError::validation(vec![FieldError::with_code(
+            "port",
+            ErrorCode::InvalidPort,
+            "Port must be between 1 and 65535",
+        )]);
+        let (_, body) = body_of(error.into_response()).await;
+        assert!(body.contains("\"code\":\"INVALID_PORT\""), "{body}");
     }
 }

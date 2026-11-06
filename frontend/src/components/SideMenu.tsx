@@ -18,6 +18,7 @@ import {
 
 import MuiDrawer, { drawerClasses } from "@mui/material/Drawer";
 import { useLocation, Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import type { ReactNode } from "react";
 
 import ThemeToggle from "./ThemeToggle";
@@ -36,7 +37,8 @@ const Drawer = styled(MuiDrawer)({
 });
 
 export interface PageInfo {
-  label: string;
+  /** Translation key, so the label follows the UI language. */
+  labelKey: string;
   path: string;
   icon?: ReactNode;
 }
@@ -48,6 +50,7 @@ interface SideMenuProps {
 }
 
 export default function SideMenu({ pages, username, onLogout }: SideMenuProps) {
+  const { t } = useTranslation();
   const location = useLocation();
   const { mode } = useColorMode();
 
@@ -118,7 +121,7 @@ export default function SideMenu({ pages, username, onLogout }: SideMenuProps) {
             fontSize: "0.625rem",
           }}
         >
-          管理
+          {t("common.management")}
         </Typography>
         {pages.map((item) => {
           const active = isActive(item.path);
@@ -170,7 +173,7 @@ export default function SideMenu({ pages, username, onLogout }: SideMenuProps) {
               >
                 {item.icon}
               </Box>
-              {item.label}
+              {t(item.labelKey)}
             </ListItemButton>
           );
         })}
@@ -208,7 +211,7 @@ export default function SideMenu({ pages, username, onLogout }: SideMenuProps) {
               {username}
             </Typography>
             <Typography sx={{ fontSize: "0.6875rem", color: "text.disabled", lineHeight: 1.3 }}>
-              管理员
+              {t("common.administrator")}
             </Typography>
           </Box>
         </Box>
@@ -224,7 +227,7 @@ export default function SideMenu({ pages, username, onLogout }: SideMenuProps) {
           }}
         >
           <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.6875rem" }}>
-            {mode === "dark" ? "深色" : "浅色"}主题
+            {mode === "dark" ? t("common.darkMode") : t("common.lightMode")}
           </Typography>
           <ThemeToggle />
         </Box>
@@ -243,7 +246,7 @@ export default function SideMenu({ pages, username, onLogout }: SideMenuProps) {
             "&:hover": { backgroundColor: "action.hover", color: "text.primary" },
           }}
         >
-          退出登录
+          {t("nav.signOut")}
         </Button>
       </Box>
     </Drawer>

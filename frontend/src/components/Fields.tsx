@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField } from "@mui/material";
+import { useTranslation } from "react-i18next";
 
 export type LeafFieldProps<T> = {
   label: string;
@@ -79,6 +80,7 @@ export function StringListEditor({
   placeholder,
   separator = ",",
 }: LeafFieldProps<string[]> & { separator?: string }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -93,7 +95,7 @@ export function StringListEditor({
           setOpen(true);
         }}
       >
-        {label}（{value?.length ?? 0}）
+        {label} ({value?.length ?? 0})
       </Button>
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{label}</DialogTitle>
@@ -105,13 +107,13 @@ export function StringListEditor({
               minRows={4}
               value={draft}
               placeholder={placeholder}
-              helperText={helperText ?? `使用 “${separator}” 分隔多个值`}
+              helperText={helperText ?? t("common.multivalueHelper", { separator })}
               onChange={(event) => setDraft(event.target.value)}
             />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>取消</Button>
+          <Button onClick={() => setOpen(false)}>{t("common.cancel")}</Button>
           <Button
             variant="contained"
             onClick={() => {
@@ -124,7 +126,7 @@ export function StringListEditor({
               setOpen(false);
             }}
           >
-            保存
+            {t("common.save")}
           </Button>
         </DialogActions>
       </Dialog>

@@ -27,23 +27,23 @@ import {
 describe("checkText", () => {
   it("rejects blank values and names the field", () => {
     const errors: FieldErrors = {};
-    checkText(errors, "name", "节点名称", "   ", 1, 64);
-    expect(errors.name).toBe("节点名称不能为空");
+    checkText(errors, "name", "Node name", "   ", 1, 64);
+    expect(errors.name).toBe("Node name cannot be empty");
   });
 
   it("enforces both bounds", () => {
     const tooShort: FieldErrors = {};
-    checkText(tooShort, "username", "用户名", "ab", 3, 10);
-    expect(tooShort.username).toBe("用户名至少 3 个字符");
+    checkText(tooShort, "username", "Username", "ab", 3, 10);
+    expect(tooShort.username).toBe("Username must be at least 3 characters");
 
     const tooLong: FieldErrors = {};
-    checkText(tooLong, "username", "用户名", "a".repeat(11), 3, 10);
-    expect(tooLong.username).toBe("用户名最多 10 个字符");
+    checkText(tooLong, "username", "Username", "a".repeat(11), 3, 10);
+    expect(tooLong.username).toBe("Username must be at most 10 characters");
   });
 
   it("accepts a value inside the bounds", () => {
     const errors: FieldErrors = {};
-    checkText(errors, "name", "节点名称", "香港 01", 1, 64);
+    checkText(errors, "name", "Node name", "Hong Kong 01", 1, 64);
     expect(isEmpty(errors)).toBe(true);
   });
 });
@@ -85,33 +85,33 @@ describe("checkPort", () => {
 describe("checkInteger", () => {
   it("rejects blank and fractional input", () => {
     const blank: FieldErrors = {};
-    checkInteger(blank, "sort_order", "排序", " ");
-    expect(blank.sort_order).toBe("排序不能为空");
+    checkInteger(blank, "sort_order", "Sort order", " ");
+    expect(blank.sort_order).toBe("Sort order cannot be empty");
 
     const fractional: FieldErrors = {};
-    checkInteger(fractional, "sort_order", "排序", "1.2");
-    expect(fractional.sort_order).toBe("排序必须是整数");
+    checkInteger(fractional, "sort_order", "Sort order", "1.2");
+    expect(fractional.sort_order).toBe("Sort order must be an integer");
   });
 });
 
 describe("checkDuration", () => {
   it("requires a unit", () => {
     const errors: FieldErrors = {};
-    checkDuration(errors, "hop_interval", "跳跃间隔", "30");
+    checkDuration(errors, "hop_interval", "Hop interval", "30");
     expect(errors.hop_interval).toBeTruthy();
   });
 
   it("allows empty values", () => {
     const errors: FieldErrors = {};
-    checkDuration(errors, "hop_interval", "跳跃间隔", "");
-    checkDuration(errors, "hop_interval", "跳跃间隔", null);
+    checkDuration(errors, "hop_interval", "Hop interval", "");
+    checkDuration(errors, "hop_interval", "Hop interval", null);
     expect(isEmpty(errors)).toBe(true);
   });
 
   it("accepts the supported units", () => {
     for (const value of ["30s", "1m", "1500ms", "2h"]) {
       const errors: FieldErrors = {};
-      checkDuration(errors, "hop_interval", "跳跃间隔", value);
+      checkDuration(errors, "hop_interval", "Hop interval", value);
       expect(isEmpty(errors), value).toBe(true);
     }
   });
@@ -136,11 +136,11 @@ describe("checkPortRanges", () => {
 describe("mergeServerErrors", () => {
   it("keeps local messages and adds missing ones", () => {
     const merged = mergeServerErrors(
-      { name: "本地消息" },
-      { name: "服务端消息", port: "端口不合法" },
+      { name: "local message" },
+      { name: "server message", port: "invalid port" },
     );
-    expect(merged.name).toBe("本地消息");
-    expect(merged.port).toBe("端口不合法");
+    expect(merged.name).toBe("local message");
+    expect(merged.port).toBe("invalid port");
   });
 });
 
@@ -155,7 +155,7 @@ describe("validateUserForm", () => {
 
   it("rejects characters that would need escaping in a path", () => {
     expect(validateUserForm({ remark: "a", token: "with space" }).token).toBe(
-      "订阅路径只能包含字母、数字、- 和 _",
+      "Subscription path can only contain letters, numbers, - and _",
     );
     expect(validateUserForm({ remark: "a", token: "with/slash" }).token).toBeTruthy();
     expect(validateUserForm({ remark: "a", token: "with?query" }).token).toBeTruthy();
@@ -163,7 +163,7 @@ describe("validateUserForm", () => {
 
   it("bounds the subscription path length", () => {
     expect(validateUserForm({ remark: "a", token: "x".repeat(65) }).token).toBe(
-      "订阅路径最多 64 个字符",
+      "Subscription path must be at most 64 characters",
     );
   });
 
@@ -176,7 +176,9 @@ describe("validateUserForm", () => {
   });
 
   it("limits the remark length", () => {
-    expect(validateUserForm({ remark: "x".repeat(65) }).remark).toBe("备注最多 64 个字符");
+    expect(validateUserForm({ remark: "x".repeat(65) }).remark).toBe(
+      "Remark must be at most 64 characters",
+    );
     expect(isEmpty(validateUserForm({ remark: "x".repeat(64) }))).toBe(true);
   });
 });
@@ -197,13 +199,15 @@ describe("validateCredentials", () => {
   it("rejects two rows for the same user", () => {
     const errors: FieldErrors = {};
     validateCredentials(errors, [{ user_id: 1 }, { user_id: 1 }]);
-    expect(errors["credentials.1.user_id"]).toBe("同一用户在该节点上只能有一组凭据");
+    expect(errors["credentials.1.user_id"]).toBe(
+      "A user can only hold one credential per node",
+    );
   });
 
   it("rejects a malformed uuid but allows it to be omitted", () => {
     const bad: FieldErrors = {};
     validateCredentials(bad, [{ user_id: 1, uuid: "not-a-uuid" }]);
-    expect(bad["credentials.0.uuid"]).toContain("UUID 格式不正确");
+    expect(bad["credentials.0.uuid"]).toContain("Invalid UUID format");
 
     const blank: FieldErrors = {};
     validateCredentials(blank, [{ user_id: 1, uuid: "   " }]);
@@ -213,7 +217,9 @@ describe("validateCredentials", () => {
   it("rejects a row without a user", () => {
     const errors: FieldErrors = {};
     validateCredentials(errors, [{ user_id: 0 }]);
-    expect(errors["credentials.0.user_id"]).toBe("请选择凭据所属的用户");
+    expect(errors["credentials.0.user_id"]).toBe(
+      "Please choose the user this credential belongs to",
+    );
   });
 });
 
@@ -231,7 +237,7 @@ describe("validateSettingsForm", () => {
 
   it("requires a leading slash on the prefix", () => {
     expect(validateSettingsForm({ ...base, subscription_prefix: "s" }).subscription_prefix).toBe(
-      "订阅路径前缀必须以 / 开头",
+      "Subscription prefix must start with /",
     );
   });
 
@@ -242,7 +248,9 @@ describe("validateSettingsForm", () => {
   });
 
   it("requires a non-empty site name", () => {
-    expect(validateSettingsForm({ ...base, site_name: " " }).site_name).toBe("站点名称不能为空");
+    expect(validateSettingsForm({ ...base, site_name: " " }).site_name).toBe(
+      "Site name cannot be empty",
+    );
   });
 
   it("bounds the failure delay", () => {
@@ -255,7 +263,7 @@ describe("validateSettingsForm", () => {
   it("requires a https template url when pass-through is on", () => {
     expect(
       validateSettingsForm({ ...base, disguise_passthrough: true }).disguise_template_url,
-    ).toBe("开启 404 透传前请先填写样板页地址");
+    ).toBe("Fill in the template URL before enabling 404 passthrough");
   });
 
   it("rejects a plain http template url", () => {
@@ -265,7 +273,7 @@ describe("validateSettingsForm", () => {
         disguise_passthrough: true,
         disguise_template_url: "http://sample.example.com/",
       }).disguise_template_url,
-    ).toBe("样板页地址必须是 https:// 开头并包含域名");
+    ).toBe("Template URL must start with https:// and include a hostname");
   });
 
   it("accepts a valid template url and override", () => {
@@ -288,8 +296,10 @@ describe("validateSettingsForm", () => {
       disguise_template_ip: "https://host.docker.internal",
       disguise_template_port: "70000",
     });
-    expect(errors.disguise_template_ip).toBe("服务器地址只填主机名或 IP，不要带协议或路径");
-    expect(errors.disguise_template_port).toBe("服务器端口必须在 0-65535 之间");
+    expect(errors.disguise_template_ip).toBe(
+      "Server address should be hostname or IP only, without protocol or path",
+    );
+    expect(errors.disguise_template_port).toBe("Server port must be between 0 and 65535");
   });
 
   it("accepts a hostname override", () => {

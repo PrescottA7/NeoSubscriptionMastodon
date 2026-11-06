@@ -15,6 +15,8 @@
  * the source of truth for anything the client cannot know.
  */
 
+import i18n from "./i18n";
+
 export type FieldErrors = Record<string, string>;
 
 const UUID_PATTERN =
@@ -35,11 +37,11 @@ export function checkText(
 ): void {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
-    errors[field] = `${label}不能为空`;
+    errors[field] = i18n.t("validation.required", { label });
   } else if (trimmed.length < min) {
-    errors[field] = `${label}至少 ${min} 个字符`;
+    errors[field] = i18n.t("validation.minLength", { label, min });
   } else if (trimmed.length > max) {
-    errors[field] = `${label}最多 ${max} 个字符`;
+    errors[field] = i18n.t("validation.maxLength", { label, max });
   }
 }
 
@@ -47,13 +49,13 @@ export function checkText(
 export function checkHost(errors: FieldErrors, field: string, value: string): void {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
-    errors[field] = "服务器地址不能为空";
+    errors[field] = i18n.t("validation.hostRequired");
   } else if (/\s/.test(trimmed)) {
-    errors[field] = "服务器地址不能包含空格";
+    errors[field] = i18n.t("validation.hostNoSpaces");
   } else if (trimmed.includes("://") || trimmed.includes("/")) {
-    errors[field] = "服务器地址只填主机名或 IP，不要带协议或路径";
+    errors[field] = i18n.t("validation.hostNoScheme");
   } else if (trimmed.startsWith("[") || trimmed.endsWith("]")) {
-    errors[field] = "IPv6 地址不需要方括号，例如 2001:db8::1";
+    errors[field] = i18n.t("validation.hostNoIpv6Brackets");
   }
 }
 
@@ -61,23 +63,23 @@ export function checkHost(errors: FieldErrors, field: string, value: string): vo
 export function checkPort(errors: FieldErrors, field: string, raw: string): void {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    errors[field] = "端口不能为空";
+    errors[field] = i18n.t("validation.portRequired");
     return;
   }
   const value = Number(trimmed);
   if (!Number.isInteger(value) || value < 1 || value > 65535) {
-    errors[field] = "端口必须是 1-65535 之间的整数";
+    errors[field] = i18n.t("validation.portRange");
   }
 }
 
 export function checkInteger(errors: FieldErrors, field: string, label: string, raw: string): void {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    errors[field] = `${label}不能为空`;
+    errors[field] = i18n.t("validation.required", { label });
     return;
   }
   if (!Number.isInteger(Number(trimmed))) {
-    errors[field] = `${label}必须是整数`;
+    errors[field] = i18n.t("validation.integerRequired", { label });
   }
 }
 
@@ -97,7 +99,7 @@ export function checkDuration(
   }
   const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/.exec(trimmed);
   if (!match || Number(match[1]) <= 0) {
-    errors[field] = `${label}格式应为数字加单位，例如 30s`;
+    errors[field] = i18n.t("validation.durationFormat", { label });
   }
 }
 
@@ -110,13 +112,13 @@ export function checkPortRanges(
   for (const value of values) {
     const match = /^(\d+)(?::(\d+))?$/.exec(value.trim());
     if (!match) {
-      errors[field] = `端口范围 “${value}” 不合法，应形如 2080:3000 或 443`;
+      errors[field] = i18n.t("validation.portRangeInvalid", { value });
       return;
     }
     const start = Number(match[1]);
     const end = match[2] ? Number(match[2]) : start;
     if (start === 0 || end === 0 || start > end || end > 65535) {
-      errors[field] = `端口范围 “${value}” 不合法，起始端口不能大于结束端口`;
+      errors[field] = i18n.t("validation.portRangeOrder", { value });
       return;
     }
   }
@@ -137,15 +139,15 @@ export function mergeServerErrors(errors: FieldErrors, server: FieldErrors): Fie
 export function validateUserForm(form: { remark: string; token?: string }): FieldErrors {
   const errors: FieldErrors = {};
   if (form.remark.trim().length > 64) {
-    errors.remark = "备注最多 64 个字符";
+    errors.remark = i18n.t("validation.remarkMaxLength");
   }
 
   const token = (form.token ?? "").trim();
   if (token.length > 0) {
     if (token.length > 64) {
-      errors.token = "订阅路径最多 64 个字符";
+      errors.token = i18n.t("validation.tokenMaxLength");
     } else if (!/^[A-Za-z0-9_-]+$/.test(token)) {
-      errors.token = "订阅路径只能包含字母、数字、- 和 _";
+      errors.token = i18n.t("validation.tokenFormat");
     }
   }
 
@@ -165,18 +167,17 @@ export function validateCredentials(
   const seen = new Set<number>();
   credentials.forEach((credential, index) => {
     if (!credential.user_id) {
-      errors[`credentials.${index}.user_id`] = "请选择凭据所属的用户";
+      errors[`credentials.${index}.user_id`] = i18n.t("validation.credentialUserRequired");
       return;
     }
     if (seen.has(credential.user_id)) {
-      errors[`credentials.${index}.user_id`] = "同一用户在该节点上只能有一组凭据";
+      errors[`credentials.${index}.user_id`] = i18n.t("validation.credentialDuplicate");
     }
     seen.add(credential.user_id);
 
     const uuid = credential.uuid?.trim() ?? "";
     if (uuid.length > 0 && !UUID_PATTERN.test(uuid)) {
-      errors[`credentials.${index}.uuid`] =
-        "UUID 格式不正确，例如 5783a3e7-e373-51cd-8642-c83782b807c5";
+      errors[`credentials.${index}.uuid`] = i18n.t("validation.uuidInvalid");
     }
   });
 }
@@ -196,22 +197,22 @@ export function validateSettingsForm(form: {
 
   const prefix = form.subscription_prefix.trim();
   if (prefix.length === 0) {
-    errors.subscription_prefix = "订阅路径前缀不能为空";
+    errors.subscription_prefix = i18n.t("validation.subscriptionPrefixRequired");
   } else if (!prefix.startsWith("/")) {
-    errors.subscription_prefix = "订阅路径前缀必须以 / 开头";
+    errors.subscription_prefix = i18n.t("validation.subscriptionPrefixSlash");
   } else if (prefix.length > 64) {
-    errors.subscription_prefix = "订阅路径前缀最多 64 个字符";
+    errors.subscription_prefix = i18n.t("validation.subscriptionPrefixLength");
   } else if (/[\s?#\\]/.test(prefix)) {
-    errors.subscription_prefix = "订阅路径前缀不能包含空格、? 或 #";
+    errors.subscription_prefix = i18n.t("validation.subscriptionPrefixChars");
   }
 
-  checkText(errors, "site_name", "站点名称", form.site_name, 1, 32);
+  checkText(errors, "site_name", i18n.t("validation.siteName"), form.site_name, 1, 32);
 
   const delay = form.failure_delay_ms.trim();
   if (delay.length > 0) {
     const value = Number(delay);
     if (!Number.isInteger(value) || value < 0 || value > 10_000) {
-      errors.failure_delay_ms = "失败延迟必须是 0-10000 之间的整数";
+      errors.failure_delay_ms = i18n.t("validation.failureDelayRange");
     }
   }
 
@@ -224,12 +225,12 @@ export function validateSettingsForm(form: {
       parsed = null;
     }
     if (!parsed) {
-      errors.disguise_template_url = "样板页地址不是合法的 URL";
+      errors.disguise_template_url = i18n.t("validation.templateUrlInvalid");
     } else if (parsed.protocol !== "https:" || parsed.hostname.length === 0) {
-      errors.disguise_template_url = "样板页地址必须是 https:// 开头并包含域名";
+      errors.disguise_template_url = i18n.t("validation.templateUrlScheme");
     }
   } else if (form.disguise_passthrough) {
-    errors.disguise_template_url = "开启 404 透传前请先填写样板页地址";
+    errors.disguise_template_url = i18n.t("validation.templateUrlRequired");
   }
 
   const ip = (form.disguise_template_ip ?? "").trim();
@@ -241,7 +242,7 @@ export function validateSettingsForm(form: {
   if (port.length > 0) {
     const value = Number(port);
     if (!Number.isInteger(value) || value < 0 || value > 65_535) {
-      errors.disguise_template_port = "服务器端口必须在 0-65535 之间";
+      errors.disguise_template_port = i18n.t("validation.templatePortRange");
     }
   }
 

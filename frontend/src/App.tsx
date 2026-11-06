@@ -10,6 +10,7 @@
 import { useEffect } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { Box, CircularProgress } from "@mui/material";
+import { useTranslation } from "react-i18next";
 
 import { setUnauthorizedHandler } from "./api";
 import PageContainer from "./components/PageContainer";
@@ -57,6 +58,7 @@ function ProtectedLayout() {
 
 export default function App() {
   const dispatch = useAppDispatch();
+  const { t } = useTranslation();
   const status = useAppSelector((state) => state.auth.status);
   const initialized = useAppSelector((state) => state.auth.initialized);
   const needsSetup = useAppSelector((state) => state.auth.needsSetup);
@@ -69,11 +71,11 @@ export default function App() {
     setUnauthorizedHandler(() => {
       if (status === "authenticated") {
         dispatch(sessionExpired());
-        dispatch(noticeAdded({ severity: "warning", message: "登录状态已失效，请重新登录" }));
+        dispatch(noticeAdded({ severity: "warning", message: t("common.sessionExpired") }));
       }
     });
     return () => setUnauthorizedHandler(null);
-  }, [status, dispatch]);
+  }, [status, dispatch, t]);
 
   if (!initialized) {
     return (

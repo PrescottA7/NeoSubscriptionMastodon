@@ -10,7 +10,7 @@
 //! Rules live here (not in serde) so a failure can name the exact field and
 //! return a message a user can act on, instead of a bare deserialisation error.
 
-use crate::error::FieldError;
+use crate::error::{ErrorCode, FieldError};
 
 /// Collects field errors so one response can report every problem at once.
 #[derive(Default)]
@@ -25,6 +25,17 @@ impl Validator {
 
     pub fn push(&mut self, field: impl Into<String>, message: impl Into<String>) {
         self.errors.push(FieldError::new(field, message));
+    }
+
+    /// Records an error with a machine-readable code so the client can
+    /// translate it instead of showing the English fallback.
+    pub fn push_code(
+        &mut self,
+        field: impl Into<String>,
+        code: ErrorCode,
+        message: impl Into<String>,
+    ) {
+        self.errors.push(FieldError::with_code(field, code, message));
     }
 
     /// Records an error when `condition` is false.
@@ -50,11 +61,19 @@ impl Validator {
     ) -> &mut Self {
         let trimmed = value.trim();
         if trimmed.is_empty() {
-            self.push(field, format!("{label}不能为空"));
+            self.push_code(field, ErrorCode::FieldRequired, format!("{label} is required"));
         } else if trimmed.chars().count() < min {
-            self.push(field, format!("{label}至少 {min} 个字符"));
+            self.push_code(
+                field,
+                ErrorCode::TooShort,
+                format!("{label} must be at least {min} characters"),
+            );
         } else if trimmed.chars().count() > max {
-            self.push(field, format!("{label}最多 {max} 个字符"));
+            self.push_code(
+                field,
+                ErrorCode::TooLong,
+                format!("{label} must be at most {max} characters"),
+            );
         }
         self
     }
@@ -71,7 +90,11 @@ impl Validator {
             && !value.is_empty()
             && value.chars().count() > max
         {
-            self.push(field, format!("{label}最多 {max} 个字符"));
+            self.push_code(
+                field,
+                ErrorCode::TooLong,
+                format!("{label} must be at most {max} characters"),
+            );
         }
         self
     }
@@ -80,20 +103,32 @@ impl Validator {
     pub fn host(&mut self, field: &str, value: &str) -> &mut Self {
         let trimmed = value.trim();
         if trimmed.is_empty() {
-            self.push(field, "服务器地址不能为空");
+            self.push_code(field, ErrorCode::FieldRequired, "Server address is required");
         } else if trimmed.chars().any(char::is_whitespace) {
-            self.push(field, "服务器地址不能包含空格");
+            self.push_code(
+                field,
+                ErrorCode::InvalidHost,
+                "Server address cannot contain spaces",
+            );
         } else if trimmed.contains("://") || trimmed.contains('/') {
-            self.push(field, "服务器地址只填主机名或 IP，不要带协议或路径");
+            self.push_code(
+                field,
+                ErrorCode::InvalidHost,
+                "Server address should be hostname or IP only, without protocol or path",
+            );
         } else if trimmed.starts_with('[') || trimmed.ends_with(']') {
-            self.push(field, "IPv6 地址不需要方括号，例如 2001:db8::1");
+            self.push_code(
+                field,
+                ErrorCode::InvalidHost,
+                "IPv6 addresses do not need brackets, e.g. 2001:db8::1",
+            );
         }
         self
     }
 
     pub fn port(&mut self, field: &str, value: u16) -> &mut Self {
         if value == 0 {
-            self.push(field, "端口必须在 1-65535 之间");
+            self.push_code(field, ErrorCode::InvalidPort, "Port must be between 1 and 65535");
         }
         self
     }
@@ -110,7 +145,11 @@ impl Validator {
             .trim_end_matches(|c: char| c.is_ascii_alphabetic())
             .parse::<f64>();
         if !has_unit || numeric.map(|n| n <= 0.0).unwrap_or(true) {
-            self.push(field, format!("{label}格式应为数字加单位，例如 30s"));
+            self.push_code(
+                field,
+                ErrorCode::InvalidDuration,
+                format!("{label} format should be number with unit, e.g. 30s"),
+            );
         }
         self
     }
@@ -119,9 +158,10 @@ impl Validator {
     pub fn port_ranges(&mut self, field: &str, values: &[String]) -> &mut Self {
         for value in values {
             if crate::protocol::kinds::hysteria2::parse_port_range(value).is_none() {
-                self.push(
+                self.push_code(
                     field,
-                    format!("端口范围 “{value}” 不合法，应形如 2080:3000 或 443"),
+                    ErrorCode::InvalidPortRange,
+                    format!("Port range \"{value}\" is invalid, should be like 2080:3000 or 443"),
                 );
             }
         }
@@ -148,18 +188,20 @@ mod tests {
     #[test]
     fn empty_text_is_rejected_with_the_label() {
         let mut validator = Validator::new();
-        validator.text("name", "节点名称", "   ", 1, 64);
+        validator.text("name", "Node name", "   ", 1, 64);
         let errors = validator.errors;
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].field, "name");
-        assert!(errors[0].message.contains("节点名称不能为空"));
+        assert_eq!(errors[0].code, Some(ErrorCode::FieldRequired));
+        assert!(errors[0].message.contains("Node name is required"));
     }
 
     #[test]
     fn text_length_bounds_are_enforced() {
         let mut validator = Validator::new();
-        validator.text("username", "用户名", "ab", 3, 10);
-        assert!(validator.errors[0].message.contains("至少 3"));
+        validator.text("username", "Username", "ab", 3, 10);
+        assert_eq!(validator.errors[0].code, Some(ErrorCode::TooShort));
+        assert!(validator.errors[0].message.contains("at least 3"));
     }
 
     #[test]
@@ -190,19 +232,19 @@ mod tests {
     #[test]
     fn durations_need_a_unit() {
         let mut validator = Validator::new();
-        validator.duration("hop", "跳跃间隔", Some("30"));
+        validator.duration("hop", "Hop interval", Some("30"));
         assert!(!validator.is_empty());
 
         let mut validator = Validator::new();
-        validator.duration("hop", "跳跃间隔", Some("30s"));
+        validator.duration("hop", "Hop interval", Some("30s"));
         assert!(validator.is_empty());
     }
 
     #[test]
     fn blank_optional_duration_passes() {
         let mut validator = Validator::new();
-        validator.duration("hop", "跳跃间隔", Some(""));
-        validator.duration("hop", "跳跃间隔", None);
+        validator.duration("hop", "Hop interval", Some(""));
+        validator.duration("hop", "Hop interval", None);
         assert!(validator.is_empty());
     }
 
@@ -217,7 +259,7 @@ mod tests {
     #[test]
     fn finish_returns_422_with_all_errors() {
         let mut validator = Validator::new();
-        validator.text("name", "节点名称", "", 1, 64);
+        validator.text("name", "Node name", "", 1, 64);
         validator.port("port", 0);
         let error = validator.finish().expect_err("should fail");
         let response = error.into_response();

@@ -91,16 +91,16 @@ fn validate_settings(payload: &SettingsUpdate) -> Result<(), RequestError> {
     if let Some(prefix) = payload.subscription_prefix.as_deref() {
         let trimmed = prefix.trim();
         if trimmed.is_empty() {
-            validator.push("subscription_prefix", "订阅路径前缀不能为空");
+            validator.push("subscription_prefix", "Subscription prefix cannot be empty");
         } else if !trimmed.starts_with('/') {
-            validator.push("subscription_prefix", "订阅路径前缀必须以 / 开头");
+            validator.push("subscription_prefix", "Subscription prefix must start with /");
         } else if trimmed.len() > 64 {
-            validator.push("subscription_prefix", "订阅路径前缀最多 64 个字符");
+            validator.push("subscription_prefix", "Subscription prefix must be at most 64 characters");
         } else if trimmed
             .chars()
             .any(|c| c.is_whitespace() || matches!(c, '?' | '#' | '\\'))
         {
-            validator.push("subscription_prefix", "订阅路径前缀不能包含空格、? 或 #");
+            validator.push("subscription_prefix", "Subscription prefix cannot contain spaces, ? or #");
         }
     }
 
@@ -114,7 +114,7 @@ fn validate_settings(payload: &SettingsUpdate) -> Result<(), RequestError> {
             known,
             "default_target",
             format!(
-                "不支持的默认格式 “{trimmed}”，可选 uri 或 {}",
+                "Unsupported default format \"{trimmed}\", available options: uri or {}",
                 crate::render::supported_cores()
                     .iter()
                     .map(|core| core.as_str())
@@ -125,14 +125,14 @@ fn validate_settings(payload: &SettingsUpdate) -> Result<(), RequestError> {
     }
 
     if let Some(site_name) = payload.site_name.as_deref() {
-        validator.text("site_name", "站点名称", site_name, 1, 32);
+        validator.text("site_name", "Site name", site_name, 1, 32);
     }
 
     if let Some(delay) = payload.failure_delay_ms {
         validator.require(
             delay <= 10_000,
             "failure_delay_ms",
-            "失败延迟最多 10000 毫秒",
+            "Failure delay must be at most 10000 milliseconds",
         );
     }
 
@@ -143,9 +143,9 @@ fn validate_settings(payload: &SettingsUpdate) -> Result<(), RequestError> {
                 Ok(parsed) if parsed.scheme() == "https" && parsed.host_str().is_some() => {}
                 Ok(_) => validator.push(
                     "disguise_template_url",
-                    "样板页地址必须是 https:// 开头并包含域名",
+                    "Template URL must start with https:// and include a domain",
                 ),
-                Err(_) => validator.push("disguise_template_url", "样板页地址不是合法的 URL"),
+                Err(_) => validator.push("disguise_template_url", "Template URL is not a valid URL"),
             }
         }
     }
@@ -168,7 +168,7 @@ fn validate_settings(payload: &SettingsUpdate) -> Result<(), RequestError> {
         validator.require(
             !url.is_empty(),
             "disguise_template_url",
-            "开启 404 透传前请先填写样板页地址",
+            "Please fill in the template URL before enabling 404 passthrough",
         );
     }
 

@@ -51,23 +51,23 @@ fn describe(rejection: &JsonRejection) -> String {
     let raw = rejection.body_text();
 
     if raw.contains("Failed to parse the request body as JSON") {
-        return "请求数据格式不正确：请求体不是合法的 JSON".to_owned();
+        return "Malformed request body: not valid JSON".to_owned();
     }
     if raw.contains("Content-Type: application/json") {
-        return "请求数据格式不正确：请使用 Content-Type: application/json".to_owned();
+        return "Malformed request: expected Content-Type: application/json".to_owned();
     }
 
     match detail(&raw) {
-        Some(detail) => format!("请求数据格式不正确：{detail}"),
-        None => "请求数据格式不正确：请检查字段类型与必填项".to_owned(),
+        Some(detail) => format!("Malformed request: {detail}"),
+        None => "Malformed request: please check field types and required fields".to_owned(),
     }
 }
 
 /// Extracts the field name plus position from a serde message.
 fn detail(raw: &str) -> Option<String> {
     for (prefix, advice) in [
-        ("missing field `", "缺少必填字段"),
-        ("unknown field `", "存在未知字段"),
+        ("missing field `", "missing required field"),
+        ("unknown field `", "unknown field"),
     ] {
         if let Some(start) = raw.find(prefix) {
             let rest = &raw[start + prefix.len()..];
@@ -88,7 +88,7 @@ fn detail(raw: &str) -> Option<String> {
     }
 
     if let Some(field) = invalid_type_field(raw) {
-        return Some(format!("字段 `{field}` 的类型不正确"));
+        return Some(format!("field `{field}` has an invalid type"));
     }
 
     None
@@ -121,7 +121,7 @@ mod tests {
     fn missing_field_is_named() {
         let message = detail("missing field `port` at line 1 column 40").expect("detail");
         assert!(message.contains("port"), "{message}");
-        assert!(message.contains("缺少必填字段"), "{message}");
+        assert!(message.contains("missing required field"), "{message}");
     }
 
     #[test]

@@ -21,13 +21,17 @@ import {
 } from "@mui/material";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import { getApiErrorMessage } from "../api";
 import ThemeToggle from "../components/ThemeToggle";
+import LanguageSelect from "../components/LanguageSelect";
 import { loginAction, setupAction } from "../store/authSlice";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { Wordmark } from "../components/Wordmark";
+
 export default function SignIn({ mode }: { mode: "login" | "setup" }) {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const error = useAppSelector((state) => state.auth.error);
@@ -51,7 +55,9 @@ export default function SignIn({ mode }: { mode: "login" | "setup" }) {
       await dispatch(action({ username: username.trim(), password })).unwrap();
       navigate("/", { replace: true });
     } catch (err) {
-      setLocalError(getApiErrorMessage(err, mode === "setup" ? "初始化失败" : "登录失败"));
+      setLocalError(
+        getApiErrorMessage(err, t(mode === "setup" ? "auth.setupFailed" : "auth.loginFailed")),
+      );
     } finally {
       setBusy(false);
     }
@@ -68,24 +74,24 @@ export default function SignIn({ mode }: { mode: "login" | "setup" }) {
         backgroundColor: "background.default",
       }}
     >
-      <Stack
-        direction="row"
-        sx={{ alignItems: "center", justifyContent: "space-between", p: 2 }}
-      >
+      <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", p: 2 }}>
         <Wordmark />
-        <ThemeToggle />
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+          <LanguageSelect />
+          <ThemeToggle />
+        </Stack>
       </Stack>
 
       <Box sx={{ flexGrow: 1, display: "grid", placeItems: "center", px: 3, pb: 12 }}>
         <Box sx={{ width: "100%", maxWidth: 320 }}>
           <Typography sx={{ mb: 3, fontSize: "0.875rem", color: "text.secondary" }}>
-            {mode === "setup" ? "请设置管理员账户。" : "请登录以继续。"}
+            {t(mode === "setup" ? "auth.setupMessage" : "auth.signInMessage")}
           </Typography>
 
           <form onSubmit={handleSubmit}>
             <Stack spacing={2}>
               <TextField
-                label="用户名"
+                label={t("auth.username")}
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
                 autoComplete="username"
@@ -94,7 +100,7 @@ export default function SignIn({ mode }: { mode: "login" | "setup" }) {
                 size="small"
               />
               <TextField
-                label="密码"
+                label={t("auth.password")}
                 type={show ? "text" : "password"}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -102,7 +108,7 @@ export default function SignIn({ mode }: { mode: "login" | "setup" }) {
                 required
                 fullWidth
                 size="small"
-                helperText={mode === "setup" ? "至少 12 个字符" : undefined}
+                helperText={mode === "setup" ? t("auth.passwordHint") : undefined}
                 slotProps={{
                   input: {
                     endAdornment: (
@@ -110,7 +116,7 @@ export default function SignIn({ mode }: { mode: "login" | "setup" }) {
                         <IconButton
                           size="small"
                           onClick={() => setShow((value) => !value)}
-                          aria-label={show ? "隐藏密码" : "显示密码"}
+                          aria-label={t(show ? "auth.hidePassword" : "auth.showPassword")}
                         >
                           {show ? (
                             <VisibilityOff sx={{ fontSize: 18 }} />
@@ -131,7 +137,7 @@ export default function SignIn({ mode }: { mode: "login" | "setup" }) {
                 startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
                 sx={{ mt: 0.5 }}
               >
-                {mode === "setup" ? "创建并进入" : "登录"}
+                {t(mode === "setup" ? "auth.setupSubmit" : "auth.signIn")}
               </Button>
             </Stack>
           </form>

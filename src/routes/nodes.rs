@@ -16,7 +16,7 @@ use serde::Serialize;
 
 use crate::auth::RequireAuth;
 use crate::db::nodes::{self, NodeInput, NodeSummary};
-use crate::error::{RequestError, RequestResult};
+use crate::error::{ErrorCode, RequestError, RequestResult};
 use crate::protocol::ProtocolName;
 use crate::routes::extract::ApiJson;
 use crate::state::AppState;
@@ -90,7 +90,7 @@ async fn get_node(
 ) -> RequestResult<Json<NodeDetail>> {
     let node = nodes::get(&state.db, id)
         .await?
-        .ok_or_else(|| RequestError::not_found(format!("节点 {id} 不存在")))?;
+        .ok_or_else(|| RequestError::not_found(format!("Node {id} not found")))?;
     let credentials = crate::db::credentials::list_for_node(&state.db, &state.key, id).await?;
 
     Ok(Json(NodeDetail { node, credentials }))
@@ -117,7 +117,7 @@ async fn update_node(
     nodes::update(&state.db, &state.key, id, &payload)
         .await?
         .map(Json)
-        .ok_or_else(|| RequestError::not_found(format!("节点 {id} 不存在")))
+        .ok_or_else(|| RequestError::not_found(format!("Node {id} not found")))
 }
 
 /// Rejects credentials pointing at users that do not exist, so a mistake in the
@@ -138,7 +138,7 @@ async fn ensure_users_exist(state: &AppState, payload: &NodeInput) -> RequestRes
         if credential.user_id > 0 && !known.contains(&credential.user_id) {
             validator.push(
                 format!("credentials[{index}].user_id"),
-                format!("用户 {} 不存在", credential.user_id),
+                format!("User {} not found", credential.user_id),
             );
         }
     }
@@ -163,7 +163,7 @@ async fn suggest_credentials(
 ) -> RequestResult<Json<Vec<crate::db::credentials::CredentialView>>> {
     let node = nodes::get(&state.db, id)
         .await?
-        .ok_or_else(|| RequestError::not_found(format!("节点 {id} 不存在")))?;
+        .ok_or_else(|| RequestError::not_found(format!("Node {id} not found")))?;
 
     Ok(Json(
         crate::db::credentials::suggested_for_node(&state.db, &state.key, id, &node.name).await?,
@@ -178,7 +178,7 @@ async fn rotate_credential(
     crate::db::credentials::rotate(&state.db, &state.key, id, user_id)
         .await?
         .map(Json)
-        .ok_or_else(|| RequestError::not_found("该用户在此节点上没有凭据"))
+        .ok_or_else(|| RequestError::not_found("User has no credentials on this node"))
 }
 
 #[derive(serde::Deserialize)]
@@ -195,7 +195,7 @@ async fn set_node_enabled(
     nodes::set_enabled(&state.db, id, payload.enabled)
         .await?
         .map(Json)
-        .ok_or_else(|| RequestError::not_found(format!("节点 {id} 不存在")))
+        .ok_or_else(|| RequestError::not_found(format!("Node {id} not found")))
 }
 
 async fn delete_node(
@@ -205,7 +205,7 @@ async fn delete_node(
     if nodes::delete(&state.db, id).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(RequestError::not_found(format!("节点 {id} 不存在")))
+        Err(RequestError::not_found(format!("Node {id} not found")))
     }
 }
 
@@ -215,47 +215,90 @@ async fn delete_node(
 fn validate(input: &NodeInput) -> Result<(), RequestError> {
     let mut validator = Validator::new();
 
-    validator.text("name", "节点名称", &input.name, 1, 64);
+    validator.text("name", "Node name", &input.name, 1, 64);
     validator.host("server", &input.server);
     validator.port("port", input.port);
 
     let mut seen = std::collections::HashSet::new();
     for (index, credential) in input.credentials.iter().enumerate() {
         if credential.user_id <= 0 {
-            validator.push(
+            validator.push_code(
                 format!("credentials[{index}].user_id"),
-                "请选择凭据所属的用户",
+                ErrorCode::FieldRequired,
+                "Please choose the user this credential belongs to",
             );
         } else if !seen.insert(credential.user_id) {
-            validator.push(
+            validator.push_code(
                 format!("credentials[{index}].user_id"),
-                "同一用户在该节点上只能有一组凭据",
+                ErrorCode::DuplicateEntry,
+                "A user can only hold one credential per node",
             );
         }
         if let Some(uuid) = credential.uuid.as_deref().map(str::trim)
             && !uuid.is_empty()
             && uuid::Uuid::parse_str(uuid).is_err()
         {
-            validator.push(
+            validator.push_code(
                 format!("credentials[{index}].uuid"),
-                "UUID 格式不正确，例如 5783a3e7-e373-51cd-8642-c83782b807c5",
+                ErrorCode::InvalidUuid,
+                "Invalid UUID format, e.g. 5783a3e7-e373-51cd-8642-c83782b807c5",
             );
         }
     }
 
-    for (field, message) in protocol_errors(&input.params) {
-        validator.push(field, message);
+    for (field, code, message) in protocol_errors(&input.params) {
+        validator.push_code(field, code, message);
+    }
+
+    if let Some(server) = input.server_params.as_ref() {
+        for (field, code, message) in server_errors(server) {
+            validator.push_code(field, code, message);
+        }
     }
 
     validator.finish()
 }
 
-/// Flattens the protocol-level validation messages into `(field, message)` pairs.
-fn protocol_errors(params: &crate::protocol::ProxyKind) -> Vec<(&'static str, String)> {
+/// Server-side (inbound) problems: a listener must be runnable by some core.
+fn server_errors(server: &crate::protocol::ServerConfig) -> Vec<(&'static str, ErrorCode, String)> {
+    let mut errors = Vec::new();
+
+    if server.reality.enabled && !server.supports_reality() {
+        errors.push((
+            "server_params.reality.enabled",
+            ErrorCode::RealityNotSupported,
+            format!(
+                "{} does not support REALITY; disable it or switch to a TLS certificate",
+                server.inbound.protocol.as_str()
+            ),
+        ));
+    }
+
+    if server.supports_reality()
+        && server.reality.enabled
+        && server.reality.private_key.trim().is_empty()
+    {
+        errors.push((
+            "server_params.reality.private_key",
+            ErrorCode::FieldRequired,
+            "Private key is required when REALITY is enabled".to_owned(),
+        ));
+    }
+
+    // A missing certificate is not rejected here: a node is often saved before
+    // its certificate paths are known, and the editor flags the gap instead.
+
+    errors
+}
+
+/// Flattens the protocol-level validation messages into `(field, code, message)`.
+fn protocol_errors(
+    params: &crate::protocol::ProxyKind,
+) -> Vec<(&'static str, ErrorCode, String)> {
     let mut errors = Vec::new();
 
     if let Err(message) = params.validate() {
-        errors.push(("params", message));
+        errors.push(("params", ErrorCode::BadRequest, message));
     }
 
     match params {
@@ -263,7 +306,11 @@ fn protocol_errors(params: &crate::protocol::ProxyKind) -> Vec<(&'static str, St
             if let Some(flow) = config.flow_value()
                 && flow != "xtls-rprx-vision"
             {
-                errors.push(("params.flow", format!("不支持 flow `{flow}`")));
+                errors.push((
+                    "params.flow",
+                    ErrorCode::UnsupportedProtocol,
+                    format!("Flow `{flow}` is not supported"),
+                ));
             }
         }
         crate::protocol::ProxyKind::Hysteria2(config) => {
@@ -271,20 +318,26 @@ fn protocol_errors(params: &crate::protocol::ProxyKind) -> Vec<(&'static str, St
                 if crate::protocol::kinds::hysteria2::parse_port_range(range).is_none() {
                     errors.push((
                         "params.server_ports",
-                        format!("端口范围 “{range}” 不合法，应形如 2080:3000 或 443"),
+                        ErrorCode::InvalidPortRange,
+                        format!("Port range \"{range}\" is invalid, should be like 2080:3000 or 443"),
                     ));
                 }
             }
             if let Some(obfs) = config.obfs.as_ref() {
                 if obfs.password.is_empty() {
-                    errors.push(("params.obfs.password", "启用混淆时必须填写密码".to_owned()));
+                    errors.push((
+                        "params.obfs.password",
+                        ErrorCode::FieldRequired,
+                        "A password is required when obfuscation is enabled".to_owned(),
+                    ));
                 }
                 if let (Some(min), Some(max)) = (obfs.min_packet_size, obfs.max_packet_size)
                     && min > max
                 {
                     errors.push((
                         "params.obfs.max_packet_size",
-                        "最大包大小不能小于最小包大小".to_owned(),
+                        ErrorCode::InvalidFormat,
+                        "Max packet size cannot be smaller than min packet size".to_owned(),
                     ));
                 }
             }
@@ -295,7 +348,8 @@ fn protocol_errors(params: &crate::protocol::ProxyKind) -> Vec<(&'static str, St
         {
             errors.push((
                 "params.udp_relay_mode",
-                "UDP over Stream 与 quic 中继模式不能同时启用".to_owned(),
+                ErrorCode::InvalidFormat,
+                "UDP over Stream and quic relay mode cannot be enabled together".to_owned(),
             ));
         }
         _ => {}

@@ -37,6 +37,7 @@ import {
 } from "@mui/material";
 import { Add, Delete, Edit, Refresh } from "@mui/icons-material";
 import { Link as RouterLink } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import {
   deleteNode,
@@ -46,7 +47,6 @@ import {
 } from "../api";
 import { CopyButton, MonoBlock } from "../components/CopyButton";
 import PageHeader from "../components/PageHeader";
-import { SERVER_CORES, serverCore } from "../components/cores";
 import { MONO_FONT } from "../theme";
 import { noticeAdded } from "../store/noticesSlice";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
@@ -54,6 +54,7 @@ import { loadCatalog, nodeUpdated, nodesReplaced } from "../store/catalogSlice";
 import type { Node, ServerCore } from "../types";
 
 export default function NodesPage() {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const nodes = useAppSelector((state) => state.catalog.nodes);
   const loading = useAppSelector((state) => state.catalog.loading);
@@ -78,7 +79,7 @@ export default function NodesPage() {
     setPreviewBusy(true);
     setPreviewError(null);
     setPreviewText("");
-    setPreview({ node, core: serverCore(node.params.protocol) });
+    setPreview({ node, core: node.server_params?.core ?? "xray" });
   }
 
   useEffect(() => {
@@ -100,7 +101,7 @@ export default function NodesPage() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setPreviewError(getApiErrorMessage(err, "渲染失败"));
+          setPreviewError(getApiErrorMessage(err, t("nodes.renderFailed")));
           setPreviewBusy(false);
         }
       });
@@ -108,17 +109,22 @@ export default function NodesPage() {
     return () => {
       cancelled = true;
     };
-  }, [preview]);
+  }, [preview, t]);
 
   async function handleToggle(node: Node, enabled: boolean) {
     setToggling((current) => new Set(current).add(node.id));
     try {
       const updated = await setNodeEnabled(node.id, enabled);
       dispatch(nodeUpdated(updated));
-      setToast(`已${enabled ? "启用" : "停用"}节点 ${node.name}`);
+      setToast(
+        t("nodes.toggleToast", {
+          name: node.name,
+          status: t(enabled ? "nodes.statusEnabled" : "nodes.statusDisabled"),
+        }),
+      );
     } catch (err) {
       dispatch(
-        noticeAdded({ severity: "error", message: getApiErrorMessage(err, "切换状态失败") }),
+        noticeAdded({ severity: "error", message: getApiErrorMessage(err, t("nodes.toggleFailed")) }),
       );
     } finally {
       setToggling((current) => {
@@ -134,18 +140,20 @@ export default function NodesPage() {
     try {
       await deleteNode(node.id);
       dispatch(nodesReplaced(nodes.filter((item) => item.id !== node.id)));
-      setToast(`已删除节点 ${node.name}`);
+      setToast(t("nodes.deleteSuccess", { name: node.name }));
     } catch (err) {
-      dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "删除失败") }));
+      dispatch(
+        noticeAdded({ severity: "error", message: getApiErrorMessage(err, t("nodes.deleteFailed")) }),
+      );
     }
   }
 
   return (
     <Box>
       <PageHeader
-        crumbs={[{ label: "节点" }]}
-        title="节点"
-        description="每个节点保存服务端与客户端两套配置，并按用户下发独立凭据。"
+        crumbs={[{ label: t("nodes.breadcrumb") }]}
+        title={t("nodes.title")}
+        description={t("nodes.description")}
         actions={
           <>
             <Button
@@ -153,7 +161,7 @@ export default function NodesPage() {
               variant="outlined"
               onClick={() => void dispatch(loadCatalog())}
             >
-              刷新
+              {t("common.refresh")}
             </Button>
             <Button
               startIcon={<Add sx={{ fontSize: 16 }} />}
@@ -161,24 +169,28 @@ export default function NodesPage() {
               component={RouterLink}
               to="/nodes/new"
             >
-              新建节点
+              {t("nodes.addNode")}
             </Button>
           </>
         }
       />
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       <Card>
         <TableContainer>
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>名称</TableCell>
-                <TableCell>协议</TableCell>
-                <TableCell>地址</TableCell>
-                <TableCell>状态</TableCell>
-                <TableCell align="right">操作</TableCell>
+                <TableCell>{t("nodes.nodeName")}</TableCell>
+                <TableCell>{t("nodes.protocol")}</TableCell>
+                <TableCell>{t("nodes.address")}</TableCell>
+                <TableCell>{t("nodes.status")}</TableCell>
+                <TableCell align="right">{t("nodes.actions")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -192,7 +204,7 @@ export default function NodesPage() {
               {!loading && nodes.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                    还没有节点，点击「新建节点」开始配置。
+                    {t("nodes.noNodes")}
                   </TableCell>
                 </TableRow>
               )}
@@ -204,7 +216,11 @@ export default function NodesPage() {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Chip size="small" label={node.protocol} variant="outlined" />
+                    <Chip
+                      size="small"
+                      label={t(`protocol.${node.protocol}`, node.protocol)}
+                      variant="outlined"
+                    />
                   </TableCell>
                   <TableCell sx={{ fontFamily: MONO_FONT, fontSize: "0.75rem" }}>
                     {node.server}:{node.port}
@@ -218,10 +234,10 @@ export default function NodesPage() {
                           checked={node.enabled}
                           disabled={toggling.has(node.id)}
                           onChange={(event) => void handleToggle(node, event.target.checked)}
-                          inputProps={{ "aria-label": `${node.name} 启用开关` }}
+                          inputProps={{ "aria-label": t("nodes.enableToggle", { name: node.name }) }}
                         />
                       }
-                      label={node.enabled ? "启用" : "停用"}
+                      label={t(node.enabled ? "nodes.enabled" : "nodes.disabled")}
                     />
                   </TableCell>
                   <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
@@ -239,23 +255,23 @@ export default function NodesPage() {
                         }}
                         onClick={() => openPreview(node)}
                       >
-                        服务端配置
+                        {t("nodes.serverConfig")}
                       </Button>
-                      <Tooltip title="编辑">
+                      <Tooltip title={t("nodes.editNode")}>
                         <IconButton
                           size="small"
                           component={RouterLink}
                           to={`/nodes/${node.id}`}
-                          aria-label="编辑节点"
+                          aria-label={t("nodes.editAria")}
                         >
                           <Edit sx={{ fontSize: 16 }} />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="删除">
+                      <Tooltip title={t("nodes.deleteNode")}>
                         <IconButton
                           size="small"
                           onClick={() => setConfirmDelete(node)}
-                          aria-label="删除节点"
+                          aria-label={t("nodes.deleteAria")}
                         >
                           <Delete sx={{ fontSize: 16 }} />
                         </IconButton>
@@ -272,11 +288,13 @@ export default function NodesPage() {
       <Dialog open={Boolean(preview)} onClose={closePreview} fullWidth maxWidth="md">
         <DialogTitle>
           <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
-            <Box sx={{ flexGrow: 1 }}>服务端配置 · {preview?.node.name}</Box>
+            <Box sx={{ flexGrow: 1 }}>
+              {t("nodes.serverConfigTitle", { name: preview?.node.name ?? "" })}
+            </Box>
             <TextField
               select
               size="small"
-              label="核心"
+              label={t("nodes.core")}
               value={preview?.core ?? "xray"}
               onChange={(event) => {
                 const core = event.target.value as ServerCore;
@@ -287,11 +305,8 @@ export default function NodesPage() {
               }}
               sx={{ width: 150 }}
             >
-              {SERVER_CORES.map((core) => (
-                <MenuItem key={core.value} value={core.value}>
-                  {core.label}
-                </MenuItem>
-              ))}
+              <MenuItem value="xray">{t("core.xray")}</MenuItem>
+              <MenuItem value="hysteria2">{t("core.hysteria2")}</MenuItem>
             </TextField>
           </Stack>
         </DialogTitle>
@@ -308,7 +323,7 @@ export default function NodesPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <CopyButton value={previewText} label="复制配置" />
+          <CopyButton value={previewText} label={t("nodeEditor.copyConfig")} />
           <Button
             onClick={() => {
               if (!previewText || !preview) {
@@ -323,25 +338,27 @@ export default function NodesPage() {
               URL.revokeObjectURL(url);
             }}
           >
-            下载
+            {t("common.download")}
           </Button>
-          <Button onClick={closePreview}>关闭</Button>
+          <Button onClick={closePreview}>{t("common.close")}</Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={Boolean(confirmDelete)} onClose={() => setConfirmDelete(null)}>
-        <DialogTitle>删除节点</DialogTitle>
+        <DialogTitle>{t("nodes.deleteConfirmTitle")}</DialogTitle>
         <DialogContent>
-          <Typography>确定删除「{confirmDelete?.name}」吗？此操作不可撤销。</Typography>
+          <Typography>
+            {t("nodes.deleteConfirmMessage", { name: confirmDelete?.name ?? "" })}
+          </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmDelete(null)}>取消</Button>
+          <Button onClick={() => setConfirmDelete(null)}>{t("common.cancel")}</Button>
           <Button
             color="error"
             variant="contained"
             onClick={() => confirmDelete && void handleDelete(confirmDelete)}
           >
-            删除
+            {t("common.delete")}
           </Button>
         </DialogActions>
       </Dialog>

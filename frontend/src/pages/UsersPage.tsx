@@ -33,6 +33,7 @@ import {
   Typography,
 } from "@mui/material";
 import { Add, Check, Close, Delete, Edit, Link as LinkIcon, Refresh } from "@mui/icons-material";
+import { useTranslation } from "react-i18next";
 
 import {
   createUser,
@@ -52,6 +53,7 @@ import { isEmpty, validateUserForm, type FieldErrors } from "../validation";
 import type { ProvisionedUser, User } from "../types";
 
 export default function UsersPage() {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const users = useAppSelector((state) => state.catalog.users);
   const loading = useAppSelector((state) => state.catalog.loading);
@@ -80,7 +82,7 @@ export default function UsersPage() {
     const errors = validateUserForm({ remark, token: slug });
     if (!isEmpty(errors)) {
       setCreateErrors(errors);
-      setDialogError(Object.values(errors)[0] ?? "请检查表单");
+      setDialogError(Object.values(errors)[0] ?? t("users.checkForm"));
       return;
     }
 
@@ -104,7 +106,7 @@ export default function UsersPage() {
       if (!isEmpty(serverErrors)) {
         setCreateErrors(serverErrors);
       }
-      setDialogError(getApiErrorMessage(err, "创建失败"));
+      setDialogError(getApiErrorMessage(err, t("users.createFailed")));
     } finally {
       setBusy(false);
     }
@@ -131,9 +133,11 @@ export default function UsersPage() {
       await updateUser(editing.user.id, { token: next });
       await refreshUsers();
       setEditing(null);
-      setToast("订阅链接已更新");
+      setToast(t("users.pathUpdated"));
     } catch (err) {
-      dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "更新失败") }));
+      dispatch(
+        noticeAdded({ severity: "error", message: getApiErrorMessage(err, t("users.updateFailed")) }),
+      );
     }
   }
 
@@ -147,9 +151,11 @@ export default function UsersPage() {
     try {
       await updateUser(user.id, { enabled: !user.enabled });
       await refreshUsers();
-      setToast(user.enabled ? "已停用用户" : "已启用用户");
+      setToast(t(user.enabled ? "users.userDisabled" : "users.userEnabled"));
     } catch (err) {
-      dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "更新失败") }));
+      dispatch(
+        noticeAdded({ severity: "error", message: getApiErrorMessage(err, t("users.updateFailed")) }),
+      );
     }
   }
 
@@ -158,8 +164,14 @@ export default function UsersPage() {
       const reset = await resetUserLink(user.id);
       setProvisioned(reset);
       await refreshUsers();
+      setToast(t("users.resetLinkSuccess"));
     } catch (err) {
-      dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "重置失败") }));
+      dispatch(
+        noticeAdded({
+          severity: "error",
+          message: getApiErrorMessage(err, t("users.resetLinkFailed")),
+        }),
+      );
     }
   }
 
@@ -168,9 +180,11 @@ export default function UsersPage() {
     try {
       await deleteUser(user.id);
       await refreshUsers();
-      setToast(`已删除用户 ${user.remark}`);
+      setToast(t("users.deleteSuccess", { name: userLabel(user) }));
     } catch (err) {
-      dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "删除失败") }));
+      dispatch(
+        noticeAdded({ severity: "error", message: getApiErrorMessage(err, t("users.deleteFailed")) }),
+      );
     }
   }
 
@@ -190,18 +204,15 @@ export default function UsersPage() {
 
   /** `linkPrefix` is everything before the slug, for the inline editor. */
   function slugPrefix(user: User) {
-    return user.subscription_path.slice(
-      0,
-      user.subscription_path.length - user.token.length,
-    );
+    return user.subscription_path.slice(0, user.subscription_path.length - user.token.length);
   }
 
   return (
     <Box>
       <PageHeader
-        crumbs={[{ label: "用户" }]}
-        title="用户"
-        description="用户只是订阅消费者，不持有代理凭据。订阅链接随时可查看与修改。"
+        crumbs={[{ label: t("users.breadcrumb") }]}
+        title={t("users.title")}
+        description={t("users.subscriberOnlyNotice")}
         actions={
           <>
             <Button
@@ -209,7 +220,7 @@ export default function UsersPage() {
               variant="outlined"
               onClick={() => void refreshUsers()}
             >
-              刷新
+              {t("common.refresh")}
             </Button>
             <Button
               startIcon={<Add sx={{ fontSize: 16 }} />}
@@ -220,7 +231,7 @@ export default function UsersPage() {
                 setCreateOpen(true);
               }}
             >
-              新建用户
+              {t("users.addUser")}
             </Button>
           </>
         }
@@ -231,11 +242,11 @@ export default function UsersPage() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>用户</TableCell>
-                <TableCell>订阅链接</TableCell>
-                <TableCell>访问次数</TableCell>
-                <TableCell>状态</TableCell>
-                <TableCell align="right">操作</TableCell>
+                <TableCell>{t("users.tableUser")}</TableCell>
+                <TableCell>{t("users.tableLink")}</TableCell>
+                <TableCell>{t("users.tableAccess")}</TableCell>
+                <TableCell>{t("users.tableStatus")}</TableCell>
+                <TableCell align="right">{t("users.tableActions")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -243,7 +254,7 @@ export default function UsersPage() {
               {!loading && users.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                    还没有用户，点击「新建用户」创建第一个订阅者。
+                    {t("users.noUsers")}
                   </TableCell>
                 </TableRow>
               )}
@@ -262,9 +273,7 @@ export default function UsersPage() {
                           size="small"
                           value={editing.draft}
                           autoFocus
-                          onChange={(event) =>
-                            setEditing({ user, draft: event.target.value })
-                          }
+                          onChange={(event) => setEditing({ user, draft: event.target.value })}
                           onKeyDown={(event) => {
                             if (event.key === "Enter") {
                               void handleRename();
@@ -277,14 +286,14 @@ export default function UsersPage() {
                         />
                         <IconButton
                           size="small"
-                          aria-label="保存订阅路径"
+                          aria-label={t("users.savePath")}
                           onClick={() => void handleRename()}
                         >
                           <Check fontSize="small" />
                         </IconButton>
                         <IconButton
                           size="small"
-                          aria-label="取消"
+                          aria-label={t("common.cancel")}
                           onClick={() => setEditing(null)}
                         >
                           <Close fontSize="small" />
@@ -295,16 +304,16 @@ export default function UsersPage() {
                         <Typography sx={{ fontFamily: MONO_FONT, fontSize: "0.75rem" }}>
                           {user.subscription_path}
                         </Typography>
-                        <Tooltip title="修改订阅路径">
+                        <Tooltip title={t("users.editPath")}>
                           <IconButton
                             size="small"
-                            aria-label="修改订阅路径"
+                            aria-label={t("users.editPath")}
                             onClick={() => setEditing({ user, draft: user.token })}
                           >
                             <Edit fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                        <CopyButton value={userLink(user)} label="复制" />
+                        <CopyButton value={userLink(user)} />
                       </Stack>
                     )}
                   </TableCell>
@@ -317,17 +326,21 @@ export default function UsersPage() {
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <Tooltip title="重置订阅链接">
-                      <IconButton size="small" onClick={() => void handleReset(user)} aria-label="重置链接">
+                    <Tooltip title={t("users.resetLink")}>
+                      <IconButton
+                        size="small"
+                        onClick={() => void handleReset(user)}
+                        aria-label={t("users.resetLinkAria")}
+                      >
                         <LinkIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="删除">
+                    <Tooltip title={t("common.delete")}>
                       <IconButton
                         size="small"
                         color="error"
                         onClick={() => setConfirmDelete(user)}
-                        aria-label="删除用户"
+                        aria-label={t("users.deleteAria")}
                       >
                         <Delete fontSize="small" />
                       </IconButton>
@@ -341,57 +354,57 @@ export default function UsersPage() {
       </Card>
 
       <Dialog open={createOpen} onClose={closeCreateDialog} fullWidth maxWidth="sm">
-        <DialogTitle>新建用户</DialogTitle>
+        <DialogTitle>{t("users.createUserTitle")}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
             {dialogError && <Alert severity="error">{dialogError}</Alert>}
             <TextField
-              label="备注"
+              label={t("users.remark")}
               value={remark}
               onChange={(event) => setRemark(event.target.value)}
               error={Boolean(createErrors.remark)}
-              helperText={
-                createErrors.remark ?? "用于在客户端中区分订阅名称，也会用作节点账号标签"
-              }
+              helperText={createErrors.remark ?? t("users.remarkHelper")}
               fullWidth
             />
             <TextField
-              label="订阅路径（可选）"
+              label={t("users.subscriptionPath")}
               value={slug}
               onChange={(event) => setSlug(event.target.value)}
               error={Boolean(createErrors.token)}
-              helperText={
-                createErrors.token ??
-                "留空自动生成。只能包含字母、数字、- 和 _，之后可随时修改。"
-              }
+              helperText={createErrors.token ?? t("users.subscriptionPathHelper")}
               fullWidth
             />
-            <Alert severity="info">
-              用户只是订阅者，不持有代理凭据。每个节点的账号在节点编辑页单独配置。
-            </Alert>
+            <Alert severity="info">{t("users.subscriberOnlyNotice")}</Alert>
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeCreateDialog}>取消</Button>
+          <Button onClick={closeCreateDialog}>{t("common.cancel")}</Button>
           <Button variant="contained" disabled={busy} onClick={() => void handleCreate()}>
-            创建
+            {t("users.createUser")}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={Boolean(provisioned)} onClose={() => setProvisioned(null)} fullWidth maxWidth="sm">
+      <Dialog
+        open={Boolean(provisioned)}
+        onClose={() => setProvisioned(null)}
+        fullWidth
+        maxWidth="sm"
+      >
         <DialogTitle>
-          {provisioned ? `订阅链接 · ${userLabel(provisioned.user)}` : "订阅链接"}
+          {provisioned
+            ? t("users.provisionedTitle", { name: userLabel(provisioned.user) })
+            : t("users.subscriptionLink")}
         </DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
             <Box>
               <Typography variant="caption" color="text.secondary">
-                默认格式（自动识别客户端）
+                {t("users.defaultFormat")}
               </Typography>
               <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
                 <MonoBlock value={subscriptionUrl} maxHeight={80} />
-                <CopyButton value={subscriptionUrl} label="复制订阅链接" size="medium" />
+                <CopyButton value={subscriptionUrl} size="medium" />
               </Stack>
             </Box>
             <Box>
@@ -413,31 +426,30 @@ export default function UsersPage() {
               </Stack>
             </Box>
             <Typography variant="body2" color="text.secondary">
-              支持 <code>?target=uri|sing-box|mihomo|xray|hysteria2</code>，不指定时根据
-              User-Agent 自动选择。
+              {t("users.targetHint")}
             </Typography>
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setProvisioned(null)}>完成</Button>
+          <Button onClick={() => setProvisioned(null)}>{t("users.done")}</Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={Boolean(confirmDelete)} onClose={() => setConfirmDelete(null)}>
-        <DialogTitle>删除用户</DialogTitle>
+        <DialogTitle>{t("users.confirmDelete")}</DialogTitle>
         <DialogContent>
           <Typography>
-            确定删除「{confirmDelete?.remark}」吗？其订阅链接将立即失效。
+            {t("users.confirmDeleteMessage", { name: confirmDelete?.remark ?? "" })}
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmDelete(null)}>取消</Button>
+          <Button onClick={() => setConfirmDelete(null)}>{t("common.cancel")}</Button>
           <Button
             color="error"
             variant="contained"
             onClick={() => confirmDelete && void handleDelete(confirmDelete)}
           >
-            删除
+            {t("common.delete")}
           </Button>
         </DialogActions>
       </Dialog>
@@ -455,7 +467,7 @@ export default function UsersPage() {
 function UsersLoadingRow() {
   return (
     <TableRow>
-      <TableCell colSpan={6} align="center">
+      <TableCell colSpan={5} align="center">
         <CircularProgress size={22} sx={{ my: 2 }} />
       </TableCell>
     </TableRow>

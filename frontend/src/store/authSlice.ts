@@ -10,6 +10,7 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 
 import { getSetupStatus, isUnauthorizedError, login, logout, me, setupAdmin } from "../api";
+import i18n from "../i18n";
 import type { Admin } from "../types";
 
 type AuthStatus = "idle" | "loading" | "authenticated" | "anonymous";
@@ -93,7 +94,7 @@ const authSlice = createSlice({
       .addCase(bootstrapAuth.rejected, (state, action) => {
         state.status = "anonymous";
         state.initialized = true;
-        state.error = action.error.message ?? "无法连接服务器";
+        state.error = action.error.message ?? i18n.t("auth.connectionFailed");
       })
       .addCase(loginAction.pending, (state) => {
         state.error = null;
@@ -105,7 +106,7 @@ const authSlice = createSlice({
         state.needsSetup = false;
       })
       .addCase(loginAction.rejected, (state, action) => {
-        state.error = action.error.message ?? "登录失败";
+        state.error = action.error.message ?? i18n.t("auth.loginFailed");
       })
       .addCase(setupAction.fulfilled, (state, action) => {
         state.admin = action.payload;
@@ -114,7 +115,7 @@ const authSlice = createSlice({
         state.needsSetup = false;
       })
       .addCase(setupAction.rejected, (state, action) => {
-        state.error = action.error.message ?? "初始化失败";
+        state.error = action.error.message ?? i18n.t("auth.setupFailed");
       })
       .addCase(logoutAction.fulfilled, (state) => {
         state.admin = null;

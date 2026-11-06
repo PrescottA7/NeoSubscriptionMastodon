@@ -75,7 +75,6 @@ export default function PageContainer({
           <Box
             sx={{
               width: "100%",
-              maxWidth: 1280,
               px: { xs: 2, md: 4 },
               py: { xs: 3, md: 4 },
             }}

@@ -10,6 +10,7 @@
 import { Box, Breadcrumbs, Link as MuiLink, Typography } from "@mui/material";
 import { Link as RouterLink } from "react-router-dom";
 import { ChevronRight } from "@mui/icons-material";
+import { useTranslation } from "react-i18next";
 
 export interface Crumb {
   label: string;
@@ -34,12 +35,14 @@ export default function PageHeader({
   description?: string;
   actions?: React.ReactNode;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Box sx={{ mb: 3 }}>
       {crumbs.length > 0 && (
         <Breadcrumbs
           separator={<ChevronRight sx={{ fontSize: 14, color: "text.disabled" }} />}
-          aria-label="面包屑导航"
+          aria-label={t("nav.breadcrumb")}
           sx={{ mb: 1.25, "& .MuiBreadcrumbs-ol": { flexWrap: "nowrap" } }}
         >
           {crumbs.map((crumb, index) => {

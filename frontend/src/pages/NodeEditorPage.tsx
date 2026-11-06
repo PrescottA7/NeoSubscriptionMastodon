@@ -32,6 +32,7 @@ import {
 } from "@mui/material";
 import { ArrowBack, Add, Delete, Visibility } from "@mui/icons-material";
 import { useNavigate, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import {
   createNode,
@@ -44,11 +45,16 @@ import {
 } from "../api";
 import { QuicSection, TlsSection } from "../components/TlsEditor";
 import { TransportSection } from "../components/TransportEditor";
-import { defaultParams, PROTOCOL_LABELS } from "../components/protocolDefaults";
-import { ServerSection } from "../components/ServerEditor";
+import { defaultParams } from "../components/protocolDefaults";
+import { ServerSection } from "../components/server";
+import { coreForProtocol } from "../components/server/defaults";
 import { CopyButton, MonoBlock } from "../components/CopyButton";
 import PageHeader from "../components/PageHeader";
-import { SERVER_CORES, serverCore } from "../components/cores";
+import {
+  CredentialFields,
+  EMPTY_CREDENTIALS,
+  type CredentialValues,
+} from "../components/credentials";
 import { noticeAdded } from "../store/noticesSlice";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { loadCatalog } from "../store/catalogSlice";
@@ -68,18 +74,14 @@ import type {
   CredentialInput,
   NodeParams,
   ProtocolDescriptor,
+  ProtocolName,
   ServerConfig,
   ServerCore,
 } from "../types";
 
-/// Editor state for one credential row.
-///
-/// `uuid` and `password` stay as strings so a cleared field keeps its meaning:
-/// empty means "generate a fresh value on save".
-interface CredentialRow {
+/** Editor state for one credential row. */
+interface CredentialRow extends CredentialValues {
   user_id: number;
-  uuid: string;
-  password: string;
   email: string;
   enabled: boolean;
 }
@@ -89,6 +91,9 @@ function toRow(credential: Credential): CredentialRow {
     user_id: credential.user_id,
     uuid: credential.uuid,
     password: credential.password,
+    // The server stores the account label in `email`; that is the Hysteria2
+    // username, so the editor exposes it under that name.
+    username: credential.email,
     email: credential.email,
     enabled: credential.enabled,
   };
@@ -99,103 +104,16 @@ function toInput(row: CredentialRow): CredentialInput {
     user_id: row.user_id,
     uuid: row.uuid.trim() || null,
     password: row.password.trim() || null,
-    email: row.email.trim() || null,
+    email: row.username.trim() || null,
     enabled: row.enabled,
   };
-}
-
-/// Mirrors `validate_node` on the server so obvious mistakes never round-trip.
-function validateForm(form: {
-  name: string;
-  server: string;
-  port: string;
-  sortOrder: string;
-  params: NodeParams;
-}): FieldErrors {
-  const errors: FieldErrors = {};
-
-  checkText(errors, "name", "节点名称", form.name, 1, 64);
-  checkHost(errors, "server", form.server);
-  checkPort(errors, "port", form.port);
-  checkInteger(errors, "sort_order", "排序", form.sortOrder);
-
-  switch (form.params.protocol) {
-    case "vless": {
-      const { flow } = form.params;
-      if (flow && flow !== "xtls-rprx-vision") {
-        errors["params.flow"] = `不支持 flow “${flow}”`;
-      }
-      const tls = form.params.tls;
-      const needsTls = Boolean(flow);
-      if (needsTls && !tls.enabled && !tls.reality?.enabled) {
-        errors["params.tls.enabled"] = "使用 xtls-rprx-vision 时必须启用 TLS 或 REALITY";
-      }
-      if (tls.reality?.enabled && !tls.reality.public_key.trim()) {
-        errors["params.tls.reality.public_key"] = "启用 REALITY 时必须填写 Public Key";
-      }
-      break;
-    }
-    case "trojan": {
-      if (!form.params.tls.enabled) {
-        errors["params.tls.enabled"] = "Trojan 必须启用 TLS";
-      }
-      break;
-    }
-    case "hysteria2": {
-      checkPortRanges(errors, "params.server_ports", form.params.server_ports);
-      checkDuration(errors, "params.hop_interval", "跳跃间隔", form.params.hop_interval);
-      checkDuration(
-        errors,
-        "params.hop_interval_max",
-        "最大跳跃间隔",
-        form.params.hop_interval_max,
-      );
-      const obfs = form.params.obfs;
-      if (obfs) {
-        if (!obfs.password.trim()) {
-          errors["params.obfs.password"] = "启用混淆时必须填写密码";
-        }
-        if (
-          obfs.min_packet_size != null &&
-          obfs.max_packet_size != null &&
-          obfs.min_packet_size > obfs.max_packet_size
-        ) {
-          errors["params.obfs.max_packet_size"] = "最大包大小不能小于最小包大小";
-        }
-      }
-      break;
-    }
-    case "tuic": {
-      checkDuration(errors, "params.heartbeat", "心跳间隔", form.params.heartbeat);
-      if (form.params.udp_over_stream && form.params.udp_relay_mode === "quic") {
-        errors["params.udp_relay_mode"] = "UDP over Stream 与 quic 中继模式不能同时启用";
-      }
-      break;
-    }
-    case "anytls": {
-      checkDuration(
-        errors,
-        "params.idle_session_check_interval",
-        "空闲检查间隔",
-        form.params.idle_session_check_interval,
-      );
-      checkDuration(
-        errors,
-        "params.idle_session_timeout",
-        "空闲会话超时",
-        form.params.idle_session_timeout,
-      );
-      break;
-    }
-  }
-
-  return errors;
 }
 
 export default function NodeEditorPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
+  const { t } = useTranslation();
   const users = useAppSelector((state) => state.catalog.users);
 
   const [protocols, setProtocols] = useState<ProtocolDescriptor[]>([]);
@@ -252,7 +170,7 @@ export default function NodeEditorPage() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(getApiErrorMessage(err, "加载节点失败"));
+          setError(getApiErrorMessage(err, t("nodeEditor.loadFailed")));
         }
       })
       .finally(() => {
@@ -264,7 +182,17 @@ export default function NodeEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [nodeId]);
+  }, [nodeId, t]);
+
+  /**
+   * The core this node's credentials are shaped for.
+   *
+   * Derived from the stored server config so the credential inputs match what
+   * the exporter will actually read; without a server config there is no
+   * listener yet, so the protocol's natural core is assumed.
+   */
+  const credentialCore: ServerCore =
+    serverConfig?.core ?? coreForProtocol(params.protocol) ?? "xray";
 
   function changeProtocol(protocol: NodeParams["protocol"]) {
     setParams(defaultParams(protocol));
@@ -272,6 +200,11 @@ export default function NodeEditorPage() {
     if (descriptor) {
       setPort(String(descriptor.default_port));
     }
+    // The credential shape follows the protocol, so switching one clears the
+    // other: a leftover UUID on a Trojan node would otherwise be submitted.
+    setCredentials((current) =>
+      current.map((row) => ({ ...row, uuid: "", password: "", username: "" })),
+    );
   }
 
   function patchRow(index: number, patch: Partial<CredentialRow>) {
@@ -296,7 +229,7 @@ export default function NodeEditorPage() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setPreviewError(getApiErrorMessage(err, "渲染服务端配置失败"));
+          setPreviewError(getApiErrorMessage(err, t("nodeEditor.renderServerFailed")));
         }
       })
       .finally(() => {
@@ -308,7 +241,7 @@ export default function NodeEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [previewCore, nodeId]);
+  }, [previewCore, nodeId, t]);
 
   /** Opens the preview dialog and marks it as loading in the same event. */
   function openPreview(core: ServerCore) {
@@ -321,22 +254,97 @@ export default function NodeEditorPage() {
   const assignedUserIds = new Set(credentials.map((row) => row.user_id));
   const availableUsers = users.filter((user) => !assignedUserIds.has(user.id));
 
+  /** Mirrors `validate_node` on the server so obvious mistakes never round-trip. */
+  function validateForm(): FieldErrors {
+    const errors: FieldErrors = {};
+
+    checkText(errors, "name", t("nodes.nodeName"), name, 1, 64);
+    checkHost(errors, "server", server);
+    checkPort(errors, "port", port);
+    checkInteger(errors, "sort_order", t("nodes.sortOrder"), sortOrder);
+
+    switch (params.protocol) {
+      case "vless": {
+        const { flow } = params;
+        if (flow && flow !== "xtls-rprx-vision") {
+          errors["params.flow"] = t("validation.flowUnsupported", { flow });
+        }
+        const tls = params.tls;
+        if (flow && !tls.enabled && !tls.reality?.enabled) {
+          errors["params.tls.enabled"] = t("validation.tlsRequiredForXtls");
+        }
+        if (tls.reality?.enabled && !tls.reality.public_key.trim()) {
+          errors["params.tls.reality.public_key"] = t("validation.realityPublicKeyRequired");
+        }
+        break;
+      }
+      case "trojan": {
+        if (!params.tls.enabled) {
+          errors["params.tls.enabled"] = t("validation.tlsRequiredForTrojan");
+        }
+        break;
+      }
+      case "hysteria2": {
+        checkPortRanges(errors, "params.server_ports", params.server_ports);
+        checkDuration(errors, "params.hop_interval", t("hysteria2.hopInterval"), params.hop_interval);
+        checkDuration(
+          errors,
+          "params.hop_interval_max",
+          t("hysteria2.maxHopInterval"),
+          params.hop_interval_max,
+        );
+        const obfs = params.obfs;
+        if (obfs) {
+          if (!obfs.password.trim()) {
+            errors["params.obfs.password"] = t("validation.obfsPasswordRequired");
+          }
+          if (
+            obfs.min_packet_size != null &&
+            obfs.max_packet_size != null &&
+            obfs.min_packet_size > obfs.max_packet_size
+          ) {
+            errors["params.obfs.max_packet_size"] = t("validation.maxPacketSizeInvalid");
+          }
+        }
+        break;
+      }
+      case "tuic": {
+        checkDuration(errors, "params.heartbeat", t("tuic.heartbeat"), params.heartbeat);
+        if (params.udp_over_stream && params.udp_relay_mode === "quic") {
+          errors["params.udp_relay_mode"] = t("validation.udpRelayConflict");
+        }
+        break;
+      }
+      case "anytls": {
+        checkDuration(
+          errors,
+          "params.idle_session_check_interval",
+          t("anytls.idleCheckInterval"),
+          params.idle_session_check_interval,
+        );
+        checkDuration(
+          errors,
+          "params.idle_session_timeout",
+          t("anytls.idleSessionTimeout"),
+          params.idle_session_timeout,
+        );
+        break;
+      }
+    }
+
+    validateCredentials(errors, credentials);
+    return errors;
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     // Run the same rules as the server so mistakes surface on the right input
     // immediately; the server still validates independently.
-    const errors = validateForm({
-      name,
-      server,
-      port,
-      sortOrder,
-      params,
-    });
-    validateCredentials(errors, credentials);
+    const errors = validateForm();
     if (!isEmpty(errors)) {
       setFieldErrors(errors);
-      setError(Object.values(errors)[0] ?? "请检查表单");
+      setError(Object.values(errors)[0] ?? t("nodeEditor.checkForm"));
       return;
     }
 
@@ -358,10 +366,10 @@ export default function NodeEditorPage() {
     try {
       if (id) {
         await updateNode(Number(id), payload);
-        dispatch(noticeAdded({ severity: "success", message: "节点已更新" }));
+        dispatch(noticeAdded({ severity: "success", message: t("nodeEditor.nodeUpdated") }));
       } else {
         await createNode(payload);
-        dispatch(noticeAdded({ severity: "success", message: "节点已创建" }));
+        dispatch(noticeAdded({ severity: "success", message: t("nodeEditor.nodeCreated") }));
       }
       await dispatch(loadCatalog());
       navigate("/", { replace: true });
@@ -371,7 +379,7 @@ export default function NodeEditorPage() {
       if (!isEmpty(serverErrors)) {
         setFieldErrors(serverErrors);
       }
-      setError(getApiErrorMessage(err, "保存失败"));
+      setError(getApiErrorMessage(err, t("nodeEditor.saveFailed")));
     } finally {
       setSaving(false);
     }
@@ -388,16 +396,19 @@ export default function NodeEditorPage() {
   return (
     <Box component="form" onSubmit={handleSubmit}>
       <PageHeader
-        crumbs={[{ label: "节点", to: "/" }, { label: id ? name || "未命名" : "新建节点" }]}
-        title={id ? "编辑节点" : "新建节点"}
-        description="客户端参数决定别人怎么连它，服务端参数决定这台机器怎么跑。"
+        crumbs={[
+          { label: t("nodes.breadcrumb"), to: "/" },
+          { label: id ? name || t("nodeEditor.unnamed") : t("nodeEditor.newNode") },
+        ]}
+        title={id ? t("nodeEditor.titleEdit") : t("nodeEditor.titleNew")}
+        description={t("nodeEditor.description")}
         actions={
           <>
             <Button startIcon={<ArrowBack sx={{ fontSize: 16 }} />} onClick={() => navigate("/")}>
-              返回
+              {t("nodeEditor.back")}
             </Button>
             <Button type="submit" variant="contained" disabled={saving}>
-              {saving ? "保存中…" : "保存"}
+              {saving ? t("nodes.saving") : t("nodes.save")}
             </Button>
           </>
         }
@@ -413,13 +424,13 @@ export default function NodeEditorPage() {
         <Card>
           <CardContent>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
-              基础信息
+              {t("nodeEditor.basicInfo")}
             </Typography>
             <Box
               sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
             >
               <TextField
-                label="节点名称"
+                label={t("nodes.nodeName")}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 size="small"
@@ -427,15 +438,15 @@ export default function NodeEditorPage() {
                 helperText={fieldErrors.name}
               />
               <TextField
-                label="服务器地址"
+                label={t("nodes.serverAddress")}
                 value={server}
                 onChange={(event) => setServer(event.target.value)}
                 size="small"
                 error={Boolean(fieldErrors.server)}
-                helperText={fieldErrors.server ?? "域名或 IP，IPv6 不需要方括号"}
+                helperText={fieldErrors.server ?? t("nodes.serverAddressHelper")}
               />
               <TextField
-                label="端口"
+                label={t("nodes.port")}
                 type="number"
                 value={port}
                 onChange={(event) => setPort(event.target.value)}
@@ -445,7 +456,7 @@ export default function NodeEditorPage() {
                 slotProps={{ htmlInput: { min: 1, max: 65535 } }}
               />
               <TextField
-                label="排序"
+                label={t("nodes.sortOrder")}
                 type="number"
                 value={sortOrder}
                 onChange={(event) => setSortOrder(event.target.value)}
@@ -457,7 +468,7 @@ export default function NodeEditorPage() {
                 control={
                   <Switch checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
                 }
-                label="启用"
+                label={t("nodes.enabled")}
               />
             </Box>
           </CardContent>
@@ -472,37 +483,39 @@ export default function NodeEditorPage() {
             >
               <Box>
                 <Typography variant="subtitle2" color="text.secondary">
-                  协议
+                  {t("nodeEditor.clientSection")}
                 </Typography>
                 <Typography variant="caption" color="text.disabled">
-                  客户端侧参数：别人怎么连这个节点
+                  {t("nodeEditor.clientSectionHint")}
                 </Typography>
               </Box>
               <Button
                 size="small"
                 variant="outlined"
                 startIcon={<Visibility sx={{ fontSize: 16 }} />}
-                onClick={() => openPreview(serverCore(params.protocol))}
+                onClick={() => openPreview(credentialCore)}
               >
-                服务端配置
+                {t("nodeEditor.previewConfig")}
               </Button>
             </Stack>
             <FormControl size="small" fullWidth>
-              <InputLabel>协议</InputLabel>
+              <InputLabel>{t("nodes.protocol")}</InputLabel>
               <Select
-                label="协议"
+                label={t("nodes.protocol")}
                 value={params.protocol}
                 onChange={(event) => changeProtocol(event.target.value as NodeParams["protocol"])}
               >
                 {protocols.length === 0 &&
-                  (Object.keys(PROTOCOL_LABELS) as NodeParams["protocol"][]).map((key) => (
-                    <MenuItem key={key} value={key}>
-                      {PROTOCOL_LABELS[key]}
-                    </MenuItem>
-                  ))}
+                  (["vless", "trojan", "hysteria2", "tuic", "anytls"] as ProtocolName[]).map(
+                    (key) => (
+                      <MenuItem key={key} value={key}>
+                        {t(`protocol.${key}`)}
+                      </MenuItem>
+                    ),
+                  )}
                 {protocols.map((descriptor) => (
                   <MenuItem key={descriptor.name} value={descriptor.name}>
-                    {PROTOCOL_LABELS[descriptor.name as NodeParams["protocol"]] ?? descriptor.name}
+                    {t(`protocol.${descriptor.name}`, descriptor.name)}
                   </MenuItem>
                 ))}
               </Select>
@@ -517,16 +530,16 @@ export default function NodeEditorPage() {
         <Card>
           <CardContent>
             <Typography variant="subtitle2" color="text.secondary">
-              服务端配置
+              {t("nodeEditor.serverSection")}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              这台机器上代理服务端怎么运行：监听、证书、REALITY 私钥、回落。
-              与上面的客户端参数分开保存，只有这里的内容会进入服务端配置文件。
+              {t("nodeEditor.serverSectionHint")}
             </Typography>
             <ServerSection
               config={serverConfig}
               onChange={setServerConfig}
               errors={fieldErrors}
+              protocol={params.protocol}
             />
           </CardContent>
         </Card>
@@ -534,18 +547,18 @@ export default function NodeEditorPage() {
         <Card>
           <CardContent>
             <Typography variant="subtitle2" color="text.secondary">
-              用户凭据
+              {t("nodeEditor.credentials")}
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              每个节点有自己的账号表。只有在这里配置了凭据的用户才会收到该节点；
-              留空的 UUID / 密码会在保存时自动生成。
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              {t("nodeEditor.credentialsDescription")}
+            </Typography>
+            <Typography variant="caption" color="text.disabled" sx={{ display: "block", mb: 2 }}>
+              {t("core.credentialsHint", { core: t(`core.${credentialCore}`) })}
             </Typography>
 
             <Stack spacing={1.5}>
               {credentials.length === 0 && (
-                <Alert severity="info">
-                  还没有用户能获取这个节点。添加一行，或点击「为所有用户生成」。
-                </Alert>
+                <Alert severity="info">{t("nodeEditor.credentialsEmpty")}</Alert>
               )}
 
               {credentials.map((row, index) => {
@@ -555,7 +568,7 @@ export default function NodeEditorPage() {
                     key={`${row.user_id}-${index}`}
                     sx={{
                       display: "grid",
-                      gridTemplateColumns: { xs: "1fr", md: "auto 1fr 1fr auto auto" },
+                      gridTemplateColumns: { xs: "1fr", md: "auto 1fr auto auto" },
                       gap: 1.5,
                       alignItems: "start",
                       p: 1.5,
@@ -567,27 +580,13 @@ export default function NodeEditorPage() {
                     <Typography variant="body2" sx={{ alignSelf: "center", minWidth: 90 }}>
                       {user ? user.remark || `#${user.id}` : `#${row.user_id}`}
                     </Typography>
-                    <TextField
-                      size="small"
-                      label="UUID"
-                      value={row.uuid}
-                      onChange={(event) => patchRow(index, { uuid: event.target.value })}
-                      error={Boolean(fieldErrors[`credentials.${index}.uuid`])}
-                      helperText={
-                        fieldErrors[`credentials.${index}.uuid`] ?? "留空自动生成"
-                      }
-                      slotProps={{ htmlInput: { style: { fontFamily: "monospace" } } }}
-                    />
-                    <TextField
-                      size="small"
-                      label="密码"
-                      value={row.password}
-                      onChange={(event) => patchRow(index, { password: event.target.value })}
-                      error={Boolean(fieldErrors[`credentials.${index}.password`])}
-                      helperText={
-                        fieldErrors[`credentials.${index}.password`] ?? "留空自动生成"
-                      }
-                      slotProps={{ htmlInput: { style: { fontFamily: "monospace" } } }}
+                    <CredentialFields
+                      core={credentialCore}
+                      protocol={params.protocol}
+                      values={row}
+                      index={index}
+                      errors={fieldErrors}
+                      onChange={(next) => patchRow(index, next)}
                     />
                     <FormControlLabel
                       control={
@@ -597,12 +596,12 @@ export default function NodeEditorPage() {
                           onChange={(event) => patchRow(index, { enabled: event.target.checked })}
                         />
                       }
-                      label="启用"
+                      label={t("nodes.enabled")}
                     />
                     <IconButton
                       size="small"
                       color="error"
-                      aria-label="移除凭据"
+                      aria-label={t("nodeEditor.removeCredential")}
                       onClick={() =>
                         setCredentials((current) =>
                           current.filter((_, position) => position !== index),
@@ -626,12 +625,12 @@ export default function NodeEditorPage() {
                   if (next) {
                     setCredentials((current) => [
                       ...current,
-                      { user_id: next.id, uuid: "", password: "", email: "", enabled: true },
+                      { ...EMPTY_CREDENTIALS, user_id: next.id, email: "", enabled: true },
                     ]);
                   }
                 }}
               >
-                添加用户
+                {t("nodeEditor.addUser")}
               </Button>
               <Button
                 size="small"
@@ -640,28 +639,27 @@ export default function NodeEditorPage() {
                 onClick={() =>
                   setCredentials(
                     users.map((user) => ({
+                      ...EMPTY_CREDENTIALS,
                       user_id: user.id,
-                      uuid: "",
-                      password: "",
                       email: "",
                       enabled: true,
                     })),
                   )
                 }
               >
-                为所有用户生成
+                {t("nodeEditor.generateForAll")}
               </Button>
               {availableUsers.length > 0 && (
                 <FormControl size="small" sx={{ minWidth: 160 }}>
-                  <InputLabel>快速添加</InputLabel>
+                  <InputLabel>{t("nodeEditor.quickAdd")}</InputLabel>
                   <Select
-                    label="快速添加"
+                    label={t("nodeEditor.quickAdd")}
                     value=""
                     onChange={(event) => {
                       const userId = Number(event.target.value);
                       setCredentials((current) => [
                         ...current,
-                        { user_id: userId, uuid: "", password: "", email: "", enabled: true },
+                        { ...EMPTY_CREDENTIALS, user_id: userId, email: "", enabled: true },
                       ]);
                     }}
                   >
@@ -686,24 +684,21 @@ export default function NodeEditorPage() {
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Stack direction="row" spacing={2} sx={{ alignItems: "center", flexWrap: "wrap" }}>
-            <span>服务端配置</span>
+            <span>{t("nodeEditor.serverSection")}</span>
             <Select
               size="small"
               value={previewCore ?? "xray"}
               onChange={(event) => setPreviewCore(event.target.value as ServerCore)}
               sx={{ minWidth: 150 }}
             >
-              {SERVER_CORES.map((core) => (
-                <MenuItem key={core.value} value={core.value}>
-                  {core.label}
-                </MenuItem>
-              ))}
+              <MenuItem value="xray">{t("core.xray")}</MenuItem>
+              <MenuItem value="hysteria2">{t("core.hysteria2")}</MenuItem>
             </Select>
           </Stack>
         </DialogTitle>
         <DialogContent dividers>
           {nodeId === null ? (
-            <Alert severity="info">先保存节点，才能按真实凭据渲染配置。</Alert>
+            <Alert severity="info">{t("nodeEditor.previewNeedSave")}</Alert>
           ) : previewError ? (
             <Alert severity="error">{previewError}</Alert>
           ) : previewBusy ? (
@@ -715,8 +710,8 @@ export default function NodeEditorPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <CopyButton value={previewText} label="复制配置" />
-          <Button onClick={() => setPreviewCore(null)}>关闭</Button>
+          <CopyButton value={previewText} label={t("nodeEditor.copyConfig")} />
+          <Button onClick={() => setPreviewCore(null)}>{t("nodeEditor.close")}</Button>
         </DialogActions>
       </Dialog>
     </Box>
@@ -732,16 +727,17 @@ function ProtocolFields({
   onChange: (next: NodeParams) => void;
   errors?: FieldErrors;
 }) {
+  const { t } = useTranslation();
   const field = (name: string) => ({
     error: Boolean(errors[name]),
     helperText: errors[name],
   });
   // Errors that belong to a section rather than a single input are surfaced
   // above the fields so they are never silently swallowed.
-  const sectionErrors = [
-    errors["params.tls.enabled"],
-    errors["params.udp_relay_mode"],
-  ].filter((message): message is string => Boolean(message));
+  const sectionErrors = [errors["params.tls.enabled"], errors["params.udp_relay_mode"]].filter(
+    (message): message is string => Boolean(message),
+  );
+
   switch (params.protocol) {
     case "vless":
       return (
@@ -757,32 +753,32 @@ function ProtocolFields({
             <TextField
               select
               size="small"
-              label="Flow"
+              label={t("protocol.flow")}
               value={params.flow ?? ""}
               onChange={(event) => onChange({ ...params, flow: event.target.value })}
               {...field("params.flow")}
-              helperText={field("params.flow").helperText ?? "xtls-rprx-vision 仅支持 TCP + TLS/REALITY"}
+              helperText={field("params.flow").helperText ?? t("protocol.flowHelper")}
             >
-              <MenuItem value="">不使用</MenuItem>
+              <MenuItem value="">{t("protocol.flowNone")}</MenuItem>
               <MenuItem value="xtls-rprx-vision">xtls-rprx-vision</MenuItem>
             </TextField>
             <TextField
               select
               size="small"
-              label="UDP 包编码"
+              label={t("protocol.packetEncoding")}
               value={params.packet_encoding ?? ""}
               onChange={(event) => onChange({ ...params, packet_encoding: event.target.value })}
             >
-              <MenuItem value="">默认</MenuItem>
+              <MenuItem value="">{t("protocol.default")}</MenuItem>
               <MenuItem value="xudp">xudp</MenuItem>
               <MenuItem value="packetaddr">packetaddr</MenuItem>
             </TextField>
             <TextField
               size="small"
-              label="VLESS Encryption"
+              label={t("protocol.vlessEncryption")}
               value={params.encryption ?? ""}
               onChange={(event) => onChange({ ...params, encryption: event.target.value })}
-              helperText="留空为 none"
+              helperText={t("protocol.vlessEncryptionHelper")}
             />
           </Box>
           <TlsSection
@@ -809,7 +805,7 @@ function ProtocolFields({
                 onChange={(event) => onChange({ ...params, udp: event.target.checked })}
               />
             }
-            label="启用 UDP"
+            label={t("protocol.udpEnabled")}
           />
           <TlsSection
             tls={params.tls}
@@ -835,7 +831,7 @@ function ProtocolFields({
           >
             <TextField
               size="small"
-              label="端口跳跃范围"
+              label={t("hysteria2.serverPorts")}
               value={params.server_ports.join(",")}
               onChange={(event) =>
                 onChange({
@@ -847,36 +843,39 @@ function ProtocolFields({
                 })
               }
               {...field("params.server_ports")}
-              helperText={field("params.server_ports").helperText ?? "例如 2080:3000,4000"}
+              helperText={field("params.server_ports").helperText ?? t("hysteria2.serverPortsHelper")}
             />
             <TextField
               size="small"
-              label="跳跃间隔"
+              label={t("hysteria2.hopInterval")}
               placeholder="30s"
               value={params.hop_interval ?? ""}
               onChange={(event) => onChange({ ...params, hop_interval: event.target.value })}
               {...field("params.hop_interval")}
-              helperText={field("params.hop_interval").helperText ?? "例如 30s"}
+              helperText={field("params.hop_interval").helperText ?? t("hysteria2.hopIntervalHelper")}
             />
             <TextField
               size="small"
-              label="最大跳跃间隔"
+              label={t("hysteria2.maxHopInterval")}
               placeholder="45s"
               value={params.hop_interval_max ?? ""}
               onChange={(event) => onChange({ ...params, hop_interval_max: event.target.value })}
               {...field("params.hop_interval_max")}
-              helperText={field("params.hop_interval_max").helperText ?? "填写后改为随机间隔"}
+              helperText={
+                field("params.hop_interval_max").helperText ?? t("hysteria2.maxHopIntervalHelper")
+              }
             />
             <TextField
               size="small"
-              label="BBR 配置文件"
+              label={t("hysteria2.bbrProfile")}
               placeholder="standard"
               value={params.bbr_profile ?? ""}
               onChange={(event) => onChange({ ...params, bbr_profile: event.target.value })}
-            />            <TextField
+            />
+            <TextField
               size="small"
               type="number"
-              label="上行 Mbps"
+              label={`${t("hysteria2.up")} Mbps`}
               value={params.up_mbps ?? ""}
               onChange={(event) =>
                 onChange({
@@ -888,7 +887,7 @@ function ProtocolFields({
             <TextField
               size="small"
               type="number"
-              label="下行 Mbps"
+              label={`${t("hysteria2.down")} Mbps`}
               value={params.down_mbps ?? ""}
               onChange={(event) =>
                 onChange({
@@ -908,13 +907,18 @@ function ProtocolFields({
                     onChange({
                       ...params,
                       obfs: event.target.checked
-                        ? { obfs_type: "salamander", password: "", min_packet_size: null, max_packet_size: null }
+                        ? {
+                            obfs_type: "salamander",
+                            password: "",
+                            min_packet_size: null,
+                            max_packet_size: null,
+                          }
                         : null,
                     })
                   }
                 />
               }
-              label="启用混淆"
+              label={t("hysteria2.enableObfs")}
             />
             <FormControlLabel
               control={
@@ -923,7 +927,7 @@ function ProtocolFields({
                   onChange={(event) => onChange({ ...params, brutal_debug: event.target.checked })}
                 />
               }
-              label="Brutal 调试日志"
+              label={t("hysteria2.brutalDebug")}
             />
             <FormControlLabel
               control={
@@ -934,7 +938,7 @@ function ProtocolFields({
                   }
                 />
               }
-              label="禁用 Chrome 指纹模仿"
+              label={t("hysteria2.disableChromeParrot")}
             />
           </Stack>
 
@@ -943,14 +947,17 @@ function ProtocolFields({
               sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
             >
               <FormControl size="small">
-                <InputLabel>混淆类型</InputLabel>
+                <InputLabel>{t("hysteria2.obfsType")}</InputLabel>
                 <Select
-                  label="混淆类型"
+                  label={t("hysteria2.obfsType")}
                   value={params.obfs.obfs_type}
                   onChange={(event) =>
                     onChange({
                       ...params,
-                      obfs: { ...params.obfs!, obfs_type: event.target.value as "salamander" | "gecko" },
+                      obfs: {
+                        ...params.obfs!,
+                        obfs_type: event.target.value as "salamander" | "gecko",
+                      },
                     })
                   }
                 >
@@ -960,7 +967,7 @@ function ProtocolFields({
               </FormControl>
               <TextField
                 size="small"
-                label="混淆密码"
+                label={t("hysteria2.obfsPassword")}
                 value={params.obfs.password}
                 onChange={(event) =>
                   onChange({ ...params, obfs: { ...params.obfs!, password: event.target.value } })
@@ -970,7 +977,7 @@ function ProtocolFields({
               <TextField
                 size="small"
                 type="number"
-                label="最小包大小"
+                label={t("hysteria2.minPacketSize")}
                 value={params.obfs.min_packet_size ?? ""}
                 onChange={(event) =>
                   onChange({
@@ -981,12 +988,12 @@ function ProtocolFields({
                     },
                   })
                 }
-                helperText="仅 gecko"
+                helperText={t("hysteria2.geckoOnly")}
               />
               <TextField
                 size="small"
                 type="number"
-                label="最大包大小"
+                label={t("hysteria2.maxPacketSize")}
                 value={params.obfs.max_packet_size ?? ""}
                 onChange={(event) =>
                   onChange({
@@ -998,7 +1005,9 @@ function ProtocolFields({
                   })
                 }
                 {...field("params.obfs.max_packet_size")}
-                helperText={field("params.obfs.max_packet_size").helperText ?? "仅 gecko"}
+                helperText={
+                  field("params.obfs.max_packet_size").helperText ?? t("hysteria2.geckoOnly")
+                }
               />
             </Box>
           )}
@@ -1017,13 +1026,18 @@ function ProtocolFields({
     case "tuic":
       return (
         <Stack spacing={2}>
+          {sectionErrors.map((message) => (
+            <Alert key={message} severity="error">
+              {message}
+            </Alert>
+          ))}
           <Box
             sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
           >
             <FormControl size="small">
-              <InputLabel>拥塞控制</InputLabel>
+              <InputLabel>{t("tuic.congestionControl")}</InputLabel>
               <Select
-                label="拥塞控制"
+                label={t("tuic.congestionControl")}
                 value={params.congestion_control}
                 onChange={(event) =>
                   onChange({
@@ -1038,9 +1052,9 @@ function ProtocolFields({
               </Select>
             </FormControl>
             <FormControl size="small">
-              <InputLabel>UDP 中继模式</InputLabel>
+              <InputLabel>{t("tuic.udpRelayMode")}</InputLabel>
               <Select
-                label="UDP 中继模式"
+                label={t("tuic.udpRelayMode")}
                 value={params.udp_relay_mode}
                 onChange={(event) =>
                   onChange({
@@ -1055,12 +1069,12 @@ function ProtocolFields({
             </FormControl>
             <TextField
               size="small"
-              label="心跳间隔"
+              label={t("tuic.heartbeat")}
               placeholder="10s"
               value={params.heartbeat ?? ""}
               onChange={(event) => onChange({ ...params, heartbeat: event.target.value })}
               {...field("params.heartbeat")}
-              helperText={field("params.heartbeat").helperText ?? "例如 10s"}
+              helperText={field("params.heartbeat").helperText ?? t("tuic.heartbeatHelper")}
             />
           </Box>
           <Stack direction="row" spacing={3} sx={{ flexWrap: "wrap" }}>
@@ -1073,7 +1087,7 @@ function ProtocolFields({
                   }
                 />
               }
-              label="UDP over Stream"
+              label={t("tuic.udpOverStream")}
             />
             <FormControlLabel
               control={
@@ -1084,7 +1098,7 @@ function ProtocolFields({
                   }
                 />
               }
-              label="0-RTT 握手"
+              label={t("tuic.zeroRttHandshake")}
             />
           </Stack>
           <TlsSection
@@ -1106,30 +1120,33 @@ function ProtocolFields({
           >
             <TextField
               size="small"
-              label="空闲检查间隔"
+              label={t("anytls.idleCheckInterval")}
               placeholder="30s"
               value={params.idle_session_check_interval ?? ""}
               onChange={(event) =>
                 onChange({ ...params, idle_session_check_interval: event.target.value })
               }
               {...field("params.idle_session_check_interval")}
-              helperText={field("params.idle_session_check_interval").helperText ?? "例如 30s"}
+              helperText={
+                field("params.idle_session_check_interval").helperText ??
+                t("anytls.durationHelper")
+              }
             />
             <TextField
               size="small"
-              label="空闲会话超时"
+              label={t("anytls.idleSessionTimeout")}
               placeholder="30s"
               value={params.idle_session_timeout ?? ""}
-              onChange={(event) =>
-                onChange({ ...params, idle_session_timeout: event.target.value })
-              }
+              onChange={(event) => onChange({ ...params, idle_session_timeout: event.target.value })}
               {...field("params.idle_session_timeout")}
-              helperText={field("params.idle_session_timeout").helperText ?? "例如 30s"}
+              helperText={
+                field("params.idle_session_timeout").helperText ?? t("anytls.durationHelper")
+              }
             />
             <TextField
               size="small"
               type="number"
-              label="最少空闲会话"
+              label={t("anytls.minIdleSession")}
               value={params.min_idle_session ?? ""}
               onChange={(event) =>
                 onChange({
@@ -1140,7 +1157,7 @@ function ProtocolFields({
             />
             <TextField
               size="small"
-              label="客户端元数据"
+              label={t("anytls.clientMetadata")}
               value={params.client_metadata ?? ""}
               onChange={(event) => onChange({ ...params, client_metadata: event.target.value })}
             />

@@ -9,13 +9,14 @@
 
 import type { Transport } from "../types";
 
+/** `labelKey` is a translation key, so the picker follows the UI language. */
 export const TRANSPORTS = [
-  { value: "tcp", label: "TCP (RAW)" },
-  { value: "ws", label: "WebSocket" },
-  { value: "grpc", label: "gRPC" },
-  { value: "http", label: "HTTP/2" },
-  { value: "httpupgrade", label: "HTTPUpgrade" },
-  { value: "xhttp", label: "XHTTP" },
+  { value: "tcp", labelKey: "transport.tcp" },
+  { value: "ws", labelKey: "transport.ws" },
+  { value: "grpc", labelKey: "transport.grpc" },
+  { value: "http", labelKey: "transport.http" },
+  { value: "httpupgrade", labelKey: "transport.httpupgrade" },
+  { value: "xhttp", labelKey: "transport.xhttp" },
 ] as const;
 
 /** Creates the default option set for a transport, keeping the form valid on switch. */

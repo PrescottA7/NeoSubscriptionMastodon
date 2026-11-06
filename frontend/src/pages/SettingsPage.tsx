@@ -25,6 +25,7 @@ import {
   Typography,
 } from "@mui/material";
 import { Logout, LockOutlined, Visibility, VisibilityOff } from "@mui/icons-material";
+import { useTranslation } from "react-i18next";
 
 import {
   changePassword,
@@ -35,6 +36,7 @@ import {
   updateSettings,
 } from "../api";
 import AccentPicker from "../components/AccentPicker";
+import LanguageSelect from "../components/LanguageSelect";
 import PageHeader from "../components/PageHeader";
 import { noticeAdded } from "../store/noticesSlice";
 import { useAppDispatch } from "../store/hooks";
@@ -42,6 +44,7 @@ import { isEmpty, validateSettingsForm, type FieldErrors } from "../validation";
 import type { Settings } from "../types";
 
 export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
 
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -83,9 +86,14 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
         setTemplatePort(String(value.disguise_template_port));
       })
       .catch((err) =>
-        dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "加载失败") })),
+        dispatch(
+          noticeAdded({
+            severity: "error",
+            message: getApiErrorMessage(err, t("settings.loadFailed")),
+          }),
+        ),
       );
-  }, [dispatch]);
+  }, [dispatch, t]);
 
   async function handleSave() {
     const errors = validateSettingsForm({
@@ -100,7 +108,12 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
     });
     if (!isEmpty(errors)) {
       setFieldErrors(errors);
-      dispatch(noticeAdded({ severity: "error", message: Object.values(errors)[0] ?? "请检查表单" }));
+      dispatch(
+        noticeAdded({
+          severity: "error",
+          message: Object.values(errors)[0] ?? t("common.checkForm"),
+        }),
+      );
       return;
     }
 
@@ -128,13 +141,18 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
       setTemplateUrl(updated.disguise_template_url);
       setTemplateIp(updated.disguise_template_ip);
       setTemplatePort(String(updated.disguise_template_port));
-      dispatch(noticeAdded({ severity: "success", message: "设置已保存" }));
+      dispatch(noticeAdded({ severity: "success", message: t("settings.saveSuccess") }));
     } catch (err) {
       const serverErrors = getApiFieldErrors(err);
       if (!isEmpty(serverErrors)) {
         setFieldErrors(serverErrors);
       }
-      dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "保存失败") }));
+      dispatch(
+        noticeAdded({
+          severity: "error",
+          message: getApiErrorMessage(err, t("settings.saveFailed")),
+        }),
+      );
     } finally {
       setSaving(false);
     }
@@ -146,9 +164,14 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
       const updated = await updateDisguisePage(disguise);
       setSettings(updated);
       setDisguise(updated.disguise_page);
-      dispatch(noticeAdded({ severity: "success", message: "伪装页面已更新" }));
+      dispatch(noticeAdded({ severity: "success", message: t("settings.disguiseSaved") }));
     } catch (err) {
-      dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "保存失败") }));
+      dispatch(
+        noticeAdded({
+          severity: "error",
+          message: getApiErrorMessage(err, t("settings.saveFailed")),
+        }),
+      );
     } finally {
       setSaving(false);
     }
@@ -158,10 +181,17 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
     setChanging(true);
     try {
       await changePassword(currentPassword, newPassword);
-      dispatch(noticeAdded({ severity: "success", message: "密码已更新，请重新登录" }));
+      dispatch(
+        noticeAdded({ severity: "success", message: t("settings.passwordChangeSuccess") }),
+      );
       onLogout();
     } catch (err) {
-      dispatch(noticeAdded({ severity: "error", message: getApiErrorMessage(err, "修改失败") }));
+      dispatch(
+        noticeAdded({
+          severity: "error",
+          message: getApiErrorMessage(err, t("settings.passwordChangeFailed")),
+        }),
+      );
     } finally {
       setChanging(false);
     }
@@ -170,9 +200,9 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
   return (
     <Box>
       <PageHeader
-        crumbs={[{ label: "设置" }]}
-        title="设置"
-        description="伪装策略对所有公开路径生效，包括无效订阅链接与常见探测路径。"
+        crumbs={[{ label: t("settings.breadcrumb") }]}
+        title={t("settings.title")}
+        description={t("settings.description")}
       />
 
       <Stack spacing={2}>
@@ -184,29 +214,35 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
               sx={{ alignItems: "center", justifyContent: "space-between", mb: 2 }}
             >
               <Typography variant="subtitle2" color="text.secondary">
-                外观
+                {t("settings.appearance")}
               </Typography>
-              <Chip size="small" variant="outlined" label="仅本浏览器生效" />
+              <Chip size="small" variant="outlined" label={t("settings.appearanceLocal")} />
             </Stack>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              主题色用于主按钮、输入框聚焦环和选中高亮；深色模式下会自动提亮以保持可读性。
-              此设置保存在本机浏览器，不影响其他设备。
+              {t("theme.accentHelper")}
             </Typography>
             <AccentPicker />
+            <Divider sx={{ my: 2 }} />
+            <Stack direction="row" spacing={2} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+              <LanguageSelect size="medium" />
+              <Typography variant="caption" color="text.disabled">
+                {t("settings.languageHelper")}
+              </Typography>
+            </Stack>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
-              订阅
+              {t("settings.subscription")}
             </Typography>
             <Box
               sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
             >
               <TextField
                 size="small"
-                label="订阅路径前缀"
+                label={t("settings.subscriptionPrefix")}
                 value={prefix}
                 onChange={(event) => setPrefix(event.target.value)}
                 disabled={prefixPinned}
@@ -224,13 +260,13 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
                 }}
                 helperText={
                   prefixPinned
-                    ? "已在 config.yml 中设置 subscription_prefix，链接使用该值；修改需编辑配置文件并重启服务"
-                    : fieldErrors.subscription_prefix ?? "例如 /s，最终链接为 <前缀>/<令牌>"
+                    ? t("settings.subscriptionPrefixPinned")
+                    : (fieldErrors.subscription_prefix ?? t("settings.subscriptionPrefixHelper"))
                 }
               />
               <TextField
                 size="small"
-                label="站点名称"
+                label={t("settings.siteName")}
                 value={siteName}
                 onChange={(event) => setSiteName(event.target.value)}
                 error={Boolean(fieldErrors.site_name)}
@@ -239,11 +275,11 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
               <TextField
                 size="small"
                 select
-                label="默认格式"
+                label={t("settings.defaultTarget")}
                 value={target}
                 onChange={(event) => setTarget(event.target.value)}
                 error={Boolean(fieldErrors.default_target)}
-                helperText={fieldErrors.default_target ?? "无法从 User-Agent 判断时使用"}
+                helperText={fieldErrors.default_target ?? t("settings.defaultTargetHelper")}
                 SelectProps={{ native: true }}
               >
                 {(settings?.available_cores ?? ["uri", "sing-box", "mihomo", "xray", "hysteria2"]).map(
@@ -257,11 +293,11 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
               <TextField
                 size="small"
                 type="number"
-                label="失败响应延迟 (ms)"
+                label={t("settings.failureDelay")}
                 value={delay}
                 onChange={(event) => setDelay(event.target.value)}
                 error={Boolean(fieldErrors.failure_delay_ms)}
-                helperText={fieldErrors.failure_delay_ms ?? "给 404 增加延迟，降低枚举速度"}
+                helperText={fieldErrors.failure_delay_ms ?? t("settings.failureDelayHelper")}
                 slotProps={{ htmlInput: { min: 0, max: 10000 } }}
               />
             </Box>
@@ -271,20 +307,20 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
         <Card>
           <CardContent>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
-              伪装页面
+              {t("settings.disguisePage")}
             </Typography>
             <TextField
               fullWidth
               multiline
               minRows={8}
-              label="404 页面 HTML"
+              label={t("settings.disguisePageField")}
               value={disguise}
               onChange={(event) => setDisguise(event.target.value)}
-              helperText="留空保存可恢复内置页面。内容会以 ISO-8859-1 与 404 状态返回。"
+              helperText={t("settings.disguisePageHelper")}
             />
             <Box sx={{ mt: 2 }}>
               <Button variant="contained" disabled={saving} onClick={() => void handleSaveDisguise()}>
-                保存伪装页面
+                {t("settings.saveDisguisePage")}
               </Button>
             </Box>
           </CardContent>
@@ -293,11 +329,10 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
         <Card>
           <CardContent>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
-              404 透传
+              {t("settings.disguisePassthrough")}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              开启后，伪装请求会转发到样板站并原样返回它的响应，上面的静态页面不再生效；
-              样板站不可达时自动回退到静态页面。
+              {t("settings.disguisePassthroughHelper")}
             </Typography>
             <FormControlLabel
               control={
@@ -306,7 +341,7 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
                   onChange={(event) => setPassthrough(event.target.checked)}
                 />
               }
-              label="开启 404 透传"
+              label={t("settings.enablePassthrough")}
               sx={{ mb: 2 }}
             />
             <Box
@@ -314,31 +349,35 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
             >
               <TextField
                 size="small"
-                label="样板页地址"
+                label={t("settings.disguiseTemplateUrl")}
                 placeholder="https://sample.example.com/"
                 value={templateUrl}
                 onChange={(event) => setTemplateUrl(event.target.value)}
                 error={Boolean(fieldErrors.disguise_template_url)}
-                helperText={fieldErrors.disguise_template_url ?? "必须是 https:// 地址"}
+                helperText={
+                  fieldErrors.disguise_template_url ?? t("settings.disguiseTemplateUrlHelper")
+                }
                 sx={{ gridColumn: { sm: "1 / -1" } }}
               />
               <TextField
                 size="small"
-                label="服务器地址（可选）"
+                label={t("settings.disguiseTemplateIp")}
                 placeholder="host.docker.internal"
                 value={templateIp}
                 onChange={(event) => setTemplateIp(event.target.value)}
                 error={Boolean(fieldErrors.disguise_template_ip)}
-                helperText={fieldErrors.disguise_template_ip ?? "IP 或主机名，填写后跳过 DNS，直连该地址"}
+                helperText={fieldErrors.disguise_template_ip ?? t("settings.disguiseTemplateIpHelper")}
               />
               <TextField
                 size="small"
                 type="number"
-                label="服务器端口（可选）"
+                label={t("settings.disguiseTemplatePort")}
                 value={templatePort}
                 onChange={(event) => setTemplatePort(event.target.value)}
                 error={Boolean(fieldErrors.disguise_template_port)}
-                helperText={fieldErrors.disguise_template_port ?? "0 表示使用地址中的端口"}
+                helperText={
+                  fieldErrors.disguise_template_port ?? t("settings.disguiseTemplatePortHelper")
+                }
                 slotProps={{ htmlInput: { min: 0, max: 65535 } }}
               />
             </Box>
@@ -348,10 +387,10 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
         <Card>
           <CardContent>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
-              管理员密码
+              {t("settings.adminPassword")}
             </Typography>
             <Alert severity="info" sx={{ mb: 2 }}>
-              修改密码会立即注销所有登录会话。
+              {t("settings.adminPasswordNotice")}
             </Alert>
             <Box
               sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
@@ -359,29 +398,34 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
               <TextField
                 size="small"
                 type="password"
-                label="当前密码"
+                label={t("settings.currentPassword")}
                 value={currentPassword}
                 onChange={(event) => setCurrentPassword(event.target.value)}
               />
               <TextField
                 size="small"
                 type={showPassword ? "text" : "password"}
-                label="新密码"
+                label={t("settings.newPassword")}
                 value={newPassword}
                 onChange={(event) => setNewPassword(event.target.value)}
-                helperText="至少 12 个字符"
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton size="small" onClick={() => setShowPassword((value) => !value)}>
-                        {showPassword ? (
-                          <VisibilityOff fontSize="small" />
-                        ) : (
-                          <Visibility fontSize="small" />
-                        )}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
+                helperText={t("settings.passwordHint")}
+                slotProps={{
+                  input: {
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          size="small"
+                          onClick={() => setShowPassword((value) => !value)}
+                        >
+                          {showPassword ? (
+                            <VisibilityOff fontSize="small" />
+                          ) : (
+                            <Visibility fontSize="small" />
+                          )}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  },
                 }}
               />
             </Box>
@@ -391,7 +435,7 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
                 disabled={changing || !currentPassword || newPassword.length < 12}
                 onClick={() => void handlePasswordChange()}
               >
-                修改密码
+                {t("settings.changePassword")}
               </Button>
             </Box>
           </CardContent>
@@ -401,25 +445,27 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
           <CardContent>
             <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
               <Box>
-                <Typography variant="subtitle2">退出登录</Typography>
+                <Typography variant="subtitle2">{t("settings.signOutTitle")}</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  当前设备的管理会话将立即失效。
+                  {t("settings.signOutDescription")}
                 </Typography>
               </Box>
               <Button color="error" startIcon={<Logout />} onClick={onLogout}>
-                退出
+                {t("auth.signOut")}
               </Button>
             </Stack>
             <Divider sx={{ my: 2 }} />
             <Typography variant="caption" color="text.secondary">
-              NSM {settings ? `· 前缀 ${settings.subscription_prefix}` : ""}
+              {settings
+                ? t("settings.prefixFooter", { prefix: settings.subscription_prefix })
+                : t("app.shortName")}
             </Typography>
           </CardContent>
         </Card>
 
         <Box sx={{ display: "flex", justifyContent: "flex-end", pt: 1 }}>
           <Button variant="contained" disabled={saving} onClick={() => void handleSave()}>
-            保存设置
+            {t("settings.saveSettings")}
           </Button>
         </Box>
       </Stack>

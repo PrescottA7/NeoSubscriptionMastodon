@@ -9,16 +9,18 @@
 
 import { IconButton, Tooltip } from "@mui/material";
 import { DarkModeOutlined, LightModeOutlined } from "@mui/icons-material";
+import { useTranslation } from "react-i18next";
 
 import { useColorMode } from "./colorMode";
 
 export default function ThemeToggle() {
+  const { t } = useTranslation();
   const { mode, toggle } = useColorMode();
-  const next = mode === "dark" ? "浅色" : "深色";
+  const label = mode === "dark" ? t("common.switchToLight") : t("common.switchToDark");
 
   return (
-    <Tooltip title={`切换到${next}主题`}>
-      <IconButton size="small" onClick={toggle} aria-label={`切换到${next}主题`}>
+    <Tooltip title={label}>
+      <IconButton size="small" onClick={toggle} aria-label={label}>
         {mode === "dark" ? (
           <LightModeOutlined sx={{ fontSize: 18 }} />
         ) : (

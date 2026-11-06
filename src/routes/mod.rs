@@ -228,7 +228,7 @@ fn is_admin_asset(path: &str) -> bool {
 fn api_not_found() -> Response {
     (
         StatusCode::NOT_FOUND,
-        Json(json!({ "error": "接口不存在" })),
+        Json(json!({ "error": "API endpoint not found", "code": "NOT_FOUND" })),
     )
         .into_response()
 }

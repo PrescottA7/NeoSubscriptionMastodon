@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { Box, ButtonBase, Link, Stack, TextField } from "@mui/material";
 import { Check } from "@mui/icons-material";
+import { useTranslation } from "react-i18next";
 
 import { useColorMode } from "./colorMode";
 import { ACCENT_PRESETS, DEFAULT_ACCENT, normalizeAccent } from "../theme";
@@ -21,6 +22,7 @@ import { ACCENT_PRESETS, DEFAULT_ACCENT, normalizeAccent } from "../theme";
  * colour immediately; invalid input only marks the field, never the theme.
  */
 export default function AccentPicker() {
+  const { t } = useTranslation();
   const { accent, setAccent } = useColorMode();
   // Empty until the user types, so a change made elsewhere is reflected here.
   const [typed, setTyped] = useState("");
@@ -41,13 +43,14 @@ export default function AccentPicker() {
       <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", rowGap: 1 }}>
         {ACCENT_PRESETS.map((preset) => {
           const selected = preset.value === accent;
+          const label = t(preset.labelKey);
           return (
             <ButtonBase
               key={preset.value}
               onClick={() => commit(preset.value)}
-              aria-label={`主题色：${preset.label}`}
+              aria-label={t("theme.accentAria", { name: label })}
               aria-pressed={selected}
-              title={preset.label}
+              title={label}
               sx={{
                 width: 30,
                 height: 30,
@@ -79,11 +82,13 @@ export default function AccentPicker() {
         />
         <TextField
           size="small"
-          label="自定义颜色"
+          label={t("theme.customColor")}
           value={draft}
           onChange={(event) => commit(event.target.value)}
           error={!normalized}
-          helperText={normalized ? "十六进制色值，例如 #0078d4" : "请填写 #rrggbb 形式的十六进制色值"}
+          helperText={
+            normalized ? t("theme.customColorHelper") : t("theme.customColorInvalid")
+          }
           sx={{ width: 220 }}
           slotProps={{ htmlInput: { maxLength: 7, spellCheck: false } }}
         />
@@ -94,7 +99,7 @@ export default function AccentPicker() {
           onClick={() => commit(DEFAULT_ACCENT)}
           sx={{ color: "text.secondary" }}
         >
-          恢复默认（微软蓝）
+          {t("theme.resetDefault")}
         </Link>
       </Box>
     </Stack>

@@ -10,17 +10,21 @@
 import { useState } from "react";
 import { Box, IconButton, Snackbar, Tooltip, Typography } from "@mui/material";
 import { ContentCopy } from "@mui/icons-material";
+import { useTranslation } from "react-i18next";
 
 export function CopyButton({
   value,
-  label = "复制",
+  label,
   size = "small",
 }: {
   value: string;
+  /** Defaults to the translated word for "Copy". */
   label?: string;
   size?: "small" | "medium";
 }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const title = label ?? t("common.copy");
 
   async function handleCopy() {
     try {
@@ -35,8 +39,8 @@ export function CopyButton({
 
   return (
     <>
-      <Tooltip title={label}>
-        <IconButton size={size} onClick={handleCopy} aria-label={label}>
+      <Tooltip title={title}>
+        <IconButton size={size} onClick={handleCopy} aria-label={title}>
           <ContentCopy fontSize="inherit" />
         </IconButton>
       </Tooltip>
@@ -44,7 +48,7 @@ export function CopyButton({
         open={copied}
         autoHideDuration={1500}
         onClose={() => setCopied(false)}
-        message="已复制到剪贴板"
+        message={t("common.copied")}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       />
     </>

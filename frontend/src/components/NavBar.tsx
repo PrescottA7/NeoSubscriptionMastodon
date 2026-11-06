@@ -22,6 +22,7 @@ import {
 } from "@mui/material";
 import { Menu as MenuIcon } from "@mui/icons-material";
 import { Link, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import ThemeToggle from "./ThemeToggle";
 import type { PageInfo } from "./SideMenu";
@@ -36,6 +37,7 @@ export default function NavBar({
   username: string;
   onLogout: () => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const location = useLocation();
 
@@ -64,7 +66,7 @@ export default function NavBar({
         <Toolbar variant="dense" sx={{ minHeight: 56, gap: 1 }}>
           <IconButton
             edge="start"
-            aria-label="打开菜单"
+            aria-label={t("nav.openMenu")}
             size="small"
             onClick={() => setOpen(true)}
           >
@@ -120,7 +122,7 @@ export default function NavBar({
                   >
                     {item.icon}
                   </Box>
-                  {item.label}
+                  {t(item.labelKey)}
                 </ListItemButton>
               );
             })}
@@ -158,7 +160,7 @@ export default function NavBar({
                 <Typography
                   sx={{ fontSize: "0.6875rem", color: "text.disabled", lineHeight: 1.3 }}
                 >
-                  管理员
+                  {t("common.administrator")}
                 </Typography>
               </Box>
             </Box>
@@ -179,7 +181,7 @@ export default function NavBar({
                 "&:hover": { backgroundColor: "action.hover", color: "text.primary" },
               }}
             >
-              退出登录
+              {t("nav.signOut")}
             </Button>
           </Box>
         </Stack>

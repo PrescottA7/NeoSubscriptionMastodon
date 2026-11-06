@@ -75,7 +75,7 @@ async fn setup(
     validate_credentials(&payload.username, &payload.password)?;
 
     let Some(admin) = crate::db::admins::create_admin(&state.db, &payload).await? else {
-        return Err(RequestError::conflict("管理员已初始化"));
+        return Err(RequestError::conflict("Admin already initialized"));
     };
 
     let cookie = issue_cookie(&state, cookies).await?;
@@ -90,7 +90,7 @@ async fn login(
     let Some(admin) =
         crate::db::admins::verify_login(&state.db, &payload.username, &payload.password).await?
     else {
-        return Err(RequestError::unauthorized("用户名或密码错误"));
+        return Err(RequestError::unauthorized("Invalid username or password"));
     };
 
     let cookie = issue_cookie(&state, cookies).await?;
@@ -129,7 +129,7 @@ async fn change_password(
         crate::db::admins::verify_login(&state.db, &admin.username, &payload.current_password)
             .await?;
     if verified.is_none() {
-        return Err(RequestError::unauthorized("当前密码不正确"));
+        return Err(RequestError::unauthorized("Current password is incorrect"));
     }
 
     crate::db::admins::update_admin(
@@ -160,7 +160,7 @@ async fn issue_cookie(state: &AppState, cookies: CookieJar) -> RequestResult<Coo
     let admin = state
         .db_admin()
         .await?
-        .ok_or_else(|| RequestError::unauthorized("管理员不存在"))?;
+        .ok_or_else(|| RequestError::unauthorized("Admin does not exist"))?;
 
     let token = state.sessions.issue(&admin).await?;
     let cookie = Cookie::build((SESSION_COOKIE_NAME, token))
@@ -183,10 +183,10 @@ async fn issue_cookie(state: &AppState, cookies: CookieJar) -> RequestResult<Coo
 #[allow(clippy::result_large_err)]
 fn validate_credentials(username: &str, password: &str) -> Result<(), RequestError> {
     if username.trim().len() < 3 {
-        return Err(RequestError::bad_request("用户名至少 3 个字符"));
+        return Err(RequestError::bad_request("Username must be at least 3 characters"));
     }
     if password.len() < 12 {
-        return Err(RequestError::bad_request("密码至少 12 个字符"));
+        return Err(RequestError::bad_request("Password must be at least 12 characters"));
     }
     Ok(())
 }

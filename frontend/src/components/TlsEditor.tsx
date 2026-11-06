@@ -19,6 +19,7 @@ import {
   Typography,
 } from "@mui/material";
 import { ExpandMore } from "@mui/icons-material";
+import { useTranslation } from "react-i18next";
 
 import { FieldRow } from "./Fields";
 import type { Quic, Tls } from "../types";
@@ -54,6 +55,7 @@ export function TlsSection({
   disabledReality?: boolean;
   errors?: FieldErrors;
 }) {
+  const { t } = useTranslation();
   const reality = tls.reality ?? {
     enabled: false,
     public_key: "",
@@ -75,9 +77,9 @@ export function TlsSection({
     <Accordion disableGutters>
       <AccordionSummary expandIcon={<ExpandMore />}>
         <Stack direction="row" spacing={2} sx={{ alignItems: "center", width: "100%" }}>
-          <Typography sx={{ flexGrow: 1 }}>TLS / REALITY</Typography>
+          <Typography sx={{ flexGrow: 1 }}>{t("tls.title")}</Typography>
           <Typography variant="caption" color="text.secondary">
-            {tls.reality?.enabled ? "REALITY" : tls.enabled ? "TLS" : "关闭"}
+            {tls.reality?.enabled ? "REALITY" : tls.enabled ? "TLS" : t("tls.disabled")}
           </Typography>
         </Stack>
       </AccordionSummary>
@@ -92,7 +94,7 @@ export function TlsSection({
                   onChange={(event) => patch({ enabled: event.target.checked })}
                 />
               }
-              label="启用 TLS"
+              label={t("tls.enableTls")}
             />
             {allowReality && (
               <FormControlLabel
@@ -108,7 +110,7 @@ export function TlsSection({
                     }
                   />
                 }
-                label="使用 REALITY"
+                label={t("tls.useReality")}
               />
             )}
             <FormControlLabel
@@ -118,22 +120,22 @@ export function TlsSection({
                   onChange={(event) => patch({ insecure: event.target.checked })}
                 />
               }
-              label="跳过证书校验"
+              label={t("tls.skipVerification")}
             />
           </Stack>
 
           <FieldRow>
             <TextField
               size="small"
-              label="SNI / Server Name"
+              label={t("tls.serverName")}
               value={tls.server_name ?? ""}
               onChange={(event) => patch({ server_name: event.target.value })}
-              helperText="留空则使用节点地址"
+              helperText={t("tls.serverNameHelper")}
             />
             <TextField
               size="small"
               select
-              label="uTLS 指纹"
+              label={t("tls.fingerprint")}
               value={tls.fingerprint ?? "chrome"}
               onChange={(event) => patch({ fingerprint: event.target.value })}
             >
@@ -145,7 +147,7 @@ export function TlsSection({
             </TextField>
             <TextField
               size="small"
-              label="ALPN"
+              label={t("tls.alpn")}
               value={tls.alpn.join(",")}
               onChange={(event) =>
                 patch({
@@ -155,32 +157,32 @@ export function TlsSection({
                     .filter((item) => item.length > 0),
                 })
               }
-              helperText="逗号分隔，例如 h2,http/1.1"
+              helperText={t("tls.alpnHelper")}
             />
             <TextField
               size="small"
-              label="证书 SHA256 锁定"
+              label={t("tls.certificateSha256")}
               value={tls.certificate_sha256 ?? ""}
               onChange={(event) => patch({ certificate_sha256: event.target.value })}
-              helperText="对应 pcs / pinSHA256，可留空"
+              helperText={t("tls.certificateSha256Helper")}
             />
             <TextField
               size="small"
-              label="证书名称校验"
+              label={t("tls.verifyPeerCertByName")}
               value={tls.verify_peer_cert_by_name ?? ""}
               onChange={(event) => patch({ verify_peer_cert_by_name: event.target.value })}
-              helperText="对应 vcn / verifyPeerCertByName"
+              helperText={t("tls.verifyPeerCertByNameHelper")}
             />
             <Stack direction="row" spacing={2}>
               <TextField
                 size="small"
                 select
-                label="最低版本"
+                label={t("tls.minVersion")}
                 value={tls.min_version ?? ""}
                 onChange={(event) => patch({ min_version: event.target.value })}
                 sx={{ flex: 1 }}
               >
-                <MenuItem value="">默认</MenuItem>
+                <MenuItem value="">{t("tls.default")}</MenuItem>
                 {TLS_VERSIONS.map((value) => (
                   <MenuItem key={value} value={value}>
                     {value}
@@ -190,12 +192,12 @@ export function TlsSection({
               <TextField
                 size="small"
                 select
-                label="最高版本"
+                label={t("tls.maxVersion")}
                 value={tls.max_version ?? ""}
                 onChange={(event) => patch({ max_version: event.target.value })}
                 sx={{ flex: 1 }}
               >
-                <MenuItem value="">默认</MenuItem>
+                <MenuItem value="">{t("tls.default")}</MenuItem>
                 {TLS_VERSIONS.map((value) => (
                   <MenuItem key={value} value={value}>
                     {value}
@@ -208,43 +210,43 @@ export function TlsSection({
           {allowReality && reality.enabled && (
             <Stack spacing={2}>
               <Typography variant="subtitle2" color="text.secondary">
-                REALITY 参数
+                {t("tls.realityParams")}
               </Typography>
               <FieldRow>
                 <TextField
                   size="small"
-                  label="Public Key (pbk)"
+                  label={t("tls.publicKey")}
                   value={reality.public_key}
                   onChange={(event) => patch({ reality: { ...reality, public_key: event.target.value } })}
                   required
                   {...field("params.tls.reality.public_key")}
                   helperText={
                     field("params.tls.reality.public_key").helperText ??
-                    "服务端 xray x25519 生成的 Public key"
+                    t("tls.publicKeyHelper")
                   }
                 />
                 <TextField
                   size="small"
-                  label="Short ID (sid)"
+                  label={t("tls.shortId")}
                   value={reality.short_id ?? ""}
                   onChange={(event) => patch({ reality: { ...reality, short_id: event.target.value } })}
-                  helperText="最长 16 位十六进制"
+                  helperText={t("tls.shortIdHelper")}
                 />
                 <TextField
                   size="small"
-                  label="Spider X (spx)"
+                  label={t("tls.spiderX")}
                   value={reality.spider_x ?? ""}
                   onChange={(event) => patch({ reality: { ...reality, spider_x: event.target.value } })}
-                  helperText="通常为 /"
+                  helperText={t("tls.spiderXHelper")}
                 />
                 <TextField
                   size="small"
-                  label="ML-DSA-65 公钥 (pqv)"
+                  label={t("tls.mldsa65Verify")}
                   value={reality.mldsa65_verify ?? ""}
                   onChange={(event) =>
                     patch({ reality: { ...reality, mldsa65_verify: event.target.value } })
                   }
-                  helperText="可选，抗量子校验"
+                  helperText={t("tls.mldsa65VerifyHelper")}
                 />
               </FieldRow>
             </Stack>
@@ -262,17 +264,19 @@ export function QuicSection({
   quic: Quic;
   onChange: (next: Quic) => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Accordion disableGutters>
       <AccordionSummary expandIcon={<ExpandMore />}>
-        <Typography sx={{ flexGrow: 1 }}>QUIC 参数</Typography>
+        <Typography sx={{ flexGrow: 1 }}>{t("quic.title")}</Typography>
       </AccordionSummary>
       <AccordionDetails>
         <FieldRow>
           <TextField
             size="small"
             type="number"
-            label="初始流接收窗口"
+            label={t("quic.initialStreamWindow")}
             value={quic.initial_stream_receive_window ?? ""}
             onChange={(event) =>
               onChange({
@@ -285,7 +289,7 @@ export function QuicSection({
           <TextField
             size="small"
             type="number"
-            label="最大流接收窗口"
+            label={t("quic.maxStreamWindow")}
             value={quic.max_stream_receive_window ?? ""}
             onChange={(event) =>
               onChange({
@@ -298,7 +302,7 @@ export function QuicSection({
           <TextField
             size="small"
             type="number"
-            label="初始连接接收窗口"
+            label={t("quic.initialConnectionWindow")}
             value={quic.initial_connection_receive_window ?? ""}
             onChange={(event) =>
               onChange({
@@ -311,7 +315,7 @@ export function QuicSection({
           <TextField
             size="small"
             type="number"
-            label="最大连接接收窗口"
+            label={t("quic.maxConnectionWindow")}
             value={quic.max_connection_receive_window ?? ""}
             onChange={(event) =>
               onChange({
@@ -323,7 +327,7 @@ export function QuicSection({
           />
           <TextField
             size="small"
-            label="Keep Alive"
+            label={t("quic.keepAlive")}
             placeholder="10s"
             value={quic.keep_alive_period ?? ""}
             onChange={(event) => onChange({ ...quic, keep_alive_period: event.target.value })}
@@ -337,7 +341,7 @@ export function QuicSection({
                 }
               />
             }
-            label="禁用路径 MTU 探测"
+            label={t("quic.disableMtuDiscovery")}
           />
         </FieldRow>
       </AccordionDetails>

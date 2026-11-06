@@ -154,7 +154,7 @@ fn unauthorized() -> Response {
     (
         StatusCode::UNAUTHORIZED,
         Json(ErrorResponse {
-            error: "登录状态已失效，请重新登录".to_owned(),
+            error: "Session expired, please log in again".to_owned(),
         }),
     )
         .into_response()

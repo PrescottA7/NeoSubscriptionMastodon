@@ -60,16 +60,38 @@ pub struct ServerConfig {
 impl ServerConfig {
     /// True when the listener terminates REALITY rather than plain TLS.
     pub fn uses_reality(&self) -> bool {
-        self.reality.enabled
+        self.reality.enabled && self.supports_reality()
     }
 
-    /// Whether `core` can actually run this listener. Xray has no Hysteria2
-    /// inbound, and the Hysteria2 exporter only understands Hysteria2 inbounds,
-    /// so those two cross-combinations would silently produce a config with no
-    /// accounts.
+    /// REALITY is an Xray stream-security feature, available only on the
+    /// inbounds Xray actually implements (VLESS and Trojan).
+    ///
+    /// The UI uses this to hide the REALITY section entirely for protocols that
+    /// cannot run it, rather than letting the operator configure a listener the
+    /// server would refuse to start.
+    pub fn supports_reality(&self) -> bool {
+        matches!(
+            self.inbound.protocol,
+            InboundProtocol::Vless | InboundProtocol::Trojan
+        )
+    }
+
+    /// True when the listener needs a certificate file: TLS without REALITY.
+    pub fn needs_certificate(&self) -> bool {
+        !self.uses_reality()
+    }
+
+    /// Whether `core` can actually run this listener.
+    ///
+    /// Xray implements VLESS and Trojan inbounds; Hysteria2 only knows its own
+    /// protocol. TUIC and AnyTLS have no inbound in either core, so they can be
+    /// published to clients but not served by NSM.
     pub fn supports_core(&self, core: ServerCore) -> bool {
         match core {
-            ServerCore::Xray => self.inbound.protocol != InboundProtocol::Hysteria2,
+            ServerCore::Xray => matches!(
+                self.inbound.protocol,
+                InboundProtocol::Vless | InboundProtocol::Trojan
+            ),
             ServerCore::Hysteria2 => self.inbound.protocol == InboundProtocol::Hysteria2,
         }
     }
@@ -312,6 +334,66 @@ mod tests {
         assert!(!hysteria2.supports_core(ServerCore::Xray));
         assert!(hysteria2.supports_core(ServerCore::Hysteria2));
         assert_eq!(hysteria2.supported_cores(), vec![ServerCore::Hysteria2]);
+    }
+
+    #[test]
+    fn quic_protocols_have_no_runnable_core() {
+        // Neither core ships a TUIC or AnyTLS inbound, so those nodes can be
+        // published but never served by NSM itself.
+        for protocol in [InboundProtocol::Tuic, InboundProtocol::Anytls] {
+            let config = ServerConfig {
+                inbound: InboundConfig {
+                    protocol,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            assert!(config.supported_cores().is_empty(), "{protocol:?}");
+        }
+    }
+
+    #[test]
+    fn reality_is_only_available_for_xray_streams() {
+        let vless = ServerConfig::default();
+        assert!(vless.supports_reality());
+
+        for protocol in [
+            InboundProtocol::Hysteria2,
+            InboundProtocol::Tuic,
+            InboundProtocol::Anytls,
+        ] {
+            let config = ServerConfig {
+                inbound: InboundConfig {
+                    protocol,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            assert!(!config.supports_reality(), "{protocol:?}");
+        }
+    }
+
+    #[test]
+    fn reality_flag_is_ignored_on_protocols_without_support() {
+        let mut config = ServerConfig {
+            inbound: InboundConfig {
+                protocol: InboundProtocol::Hysteria2,
+                ..Default::default()
+            },
+            reality: ServerReality {
+                enabled: true,
+                private_key: "PRIVATE".to_owned(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        // A stale flag from a protocol switch must not claim REALITY is in use.
+        assert!(!config.uses_reality());
+        assert!(config.needs_certificate());
+
+        config.inbound.protocol = InboundProtocol::Vless;
+        assert!(config.uses_reality());
+        assert!(!config.needs_certificate());
     }
 
     #[test]

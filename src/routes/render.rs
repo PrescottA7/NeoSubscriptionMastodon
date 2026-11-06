@@ -64,11 +64,13 @@ async fn render_server(
 ) -> RequestResult<Response> {
     let node = nodes::get(&state.db, id)
         .await?
-        .ok_or_else(|| RequestError::not_found(format!("节点 {id} 不存在")))?;
+        .ok_or_else(|| RequestError::not_found(format!("Node {id} not found")))?;
 
     let Some(server_config) = node.server_params.as_ref() else {
-        return Err(RequestError::bad_request(
-            "该节点还没有服务端配置，请在节点编辑页填写「服务端」部分",
+        return Err(RequestError::public_with_code(
+            StatusCode::BAD_REQUEST,
+            crate::error::ErrorCode::MissingServerConfig,
+            "This node has no server configuration yet; fill in the server section on the node edit page",
         ));
     };
 
@@ -76,16 +78,24 @@ async fn render_server(
     // but only when that core can actually run this listener.
     let core = match query.core.as_deref() {
         Some(value) => crate::protocol::ServerCore::parse(value).ok_or_else(|| {
-            RequestError::bad_request(format!("未知核心 `{value}`，可选 xray / hysteria2"))
+            RequestError::public_with_code(
+                StatusCode::BAD_REQUEST,
+                crate::error::ErrorCode::UnsupportedCore,
+                format!("Unknown core `{value}`, available options: xray / hysteria2"),
+            )
         })?,
         None => server_config.core,
     };
     if !server_config.supports_core(core) {
-        return Err(RequestError::bad_request(format!(
-            "{} 协议的入站无法由 {} 启动",
-            server_config.inbound.protocol.as_str(),
-            core.as_str()
-        )));
+        return Err(RequestError::public_with_code(
+            StatusCode::BAD_REQUEST,
+            crate::error::ErrorCode::UnsupportedCore,
+            format!(
+                "The {} inbound cannot be started by {}",
+                server_config.inbound.protocol.as_str(),
+                core.as_str()
+            ),
+        ));
     }
 
     // Only accounts that are actually enabled become server clients.
@@ -170,7 +180,7 @@ async fn render_node(
     let core = resolve_core(&query)?;
     let node = nodes::get(&state.db, id)
         .await?
-        .ok_or_else(|| RequestError::not_found(format!("节点 {id} 不存在")))?;
+        .ok_or_else(|| RequestError::not_found(format!("Node {id} not found")))?;
 
     let (user, credentials) = resolve_credentials(&state, node.id, query.user_id).await?;
     let context = RenderContext::new(user, credentials, node.params).with_node(
@@ -209,7 +219,11 @@ async fn render_all(
             .find(|user| user.enabled),
     };
     let Some(summary) = summary else {
-        return Err(RequestError::bad_request("还没有用户，请先创建一个用户"));
+        return Err(RequestError::public_with_code(
+            StatusCode::BAD_REQUEST,
+            crate::error::ErrorCode::NoUsers,
+            "No users yet; create a user first",
+        ));
     };
 
     let user = RenderUser {
@@ -242,7 +256,11 @@ async fn render_all(
         .collect();
 
     if contexts.is_empty() {
-        return Err(RequestError::not_found("没有可用节点"));
+        return Err(RequestError::public_with_code(
+            StatusCode::NOT_FOUND,
+            crate::error::ErrorCode::NoNodes,
+            "No available nodes",
+        ));
     }
 
     let content = crate::render::render_collection(core, &contexts)
@@ -286,8 +304,13 @@ fn document_response(core: Core, name: &str, content: String, download: bool) ->
 #[allow(clippy::result_large_err)]
 fn resolve_core(query: &RenderQuery) -> RequestResult<Core> {
     match query.core.as_deref() {
-        Some(value) => Core::parse(value)
-            .ok_or_else(|| RequestError::bad_request(format!("不支持的核心 `{value}`"))),
+        Some(value) => Core::parse(value).ok_or_else(|| {
+            RequestError::public_with_code(
+                StatusCode::BAD_REQUEST,
+                crate::error::ErrorCode::UnsupportedCore,
+                format!("Unsupported core `{value}`"),
+            )
+        }),
         None => Ok(Core::Uri),
     }
 }
@@ -310,8 +333,10 @@ async fn resolve_credentials(
     };
 
     let Some(summary) = summary else {
-        return Err(RequestError::bad_request(
-            "还没有用户，请先创建一个用户并为其配置节点凭据",
+        return Err(RequestError::public_with_code(
+            StatusCode::BAD_REQUEST,
+            crate::error::ErrorCode::NoUsers,
+            "No users yet; create a user and configure node credentials for it first",
         ));
     };
 
@@ -319,7 +344,11 @@ async fn resolve_credentials(
         crate::db::credentials::resolved_for_pair(&state.db, &state.key, node_id, summary.id)
             .await?
             .ok_or_else(|| {
-                RequestError::not_found(format!("用户「{}」在该节点上还没有凭据", summary.remark))
+                RequestError::public_with_code(
+                    StatusCode::NOT_FOUND,
+                    crate::error::ErrorCode::NoCredentials,
+                    format!("User \"{}\" has no credentials on this node", summary.remark),
+                )
             })?;
 
     Ok((
@@ -388,7 +417,7 @@ mod tests {
     #[test]
     fn slug_is_safe_for_filenames() {
         assert_eq!(name_slug("Tokyo 01"), "Tokyo-01");
-        assert_eq!(name_slug("东京"), "node");
+        assert_eq!(name_slug("東京"), "node");
         assert_eq!(name_slug("a/b:c"), "a-b-c");
     }
 }

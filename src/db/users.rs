@@ -234,8 +234,8 @@ impl From<DbErr> for SlugError {
 impl std::fmt::Display for SlugError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Taken(slug) => write!(f, "订阅路径 “{slug}” 已被占用"),
-            Self::Exhausted => write!(f, "无法生成唯一的订阅路径，请重试"),
+            Self::Taken(slug) => write!(f, "Subscription path \"{slug}\" is already taken"),
+            Self::Exhausted => write!(f, "Unable to generate unique subscription path, please retry"),
             Self::Db(error) => write!(f, "{error}"),
         }
     }

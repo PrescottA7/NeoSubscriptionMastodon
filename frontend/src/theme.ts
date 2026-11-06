@@ -46,18 +46,18 @@ export const MONO_FONT =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
 
 /** Accent used when none is configured: the familiar Windows/Microsoft blue. */
-export const DEFAULT_ACCENT = "#0078d4";
+export const DEFAULT_ACCENT = "#16a34a";
 
-/** Preset accents offered in the settings screen. */
-export const ACCENT_PRESETS: { label: string; value: string }[] = [
-  { label: "微软蓝", value: DEFAULT_ACCENT },
-  { label: "天青", value: "#0ea5e9" },
-  { label: "青绿", value: "#0d9488" },
-  { label: "翠绿", value: "#16a34a" },
-  { label: "琥珀", value: "#d97706" },
-  { label: "珊瑚", value: "#e11d48" },
-  { label: "紫罗兰", value: "#7c3aed" },
-  { label: "石墨", value: "#09090b" },
+/** Preset accents offered in the settings screen; `labelKey` is translated. */
+export const ACCENT_PRESETS: { labelKey: string; value: string }[] = [
+  { labelKey: "theme.microsoftBlue", value: "#0078d4" },
+  { labelKey: "theme.skyBlue", value: "#0ea5e9" },
+  { labelKey: "theme.teal", value: "#0d9488" },
+  { labelKey: "theme.emerald", value: DEFAULT_ACCENT },
+  { labelKey: "theme.amber", value: "#d97706" },
+  { labelKey: "theme.rose", value: "#e11d48" },
+  { labelKey: "theme.violet", value: "#7c3aed" },
+  { labelKey: "theme.indigo", value: "#09090b" },
 ];
 
 const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
