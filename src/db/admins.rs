@@ -6,8 +6,8 @@
 // in the project root for the full text.
 
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use chrono::Utc;
 use rand::RngCore;

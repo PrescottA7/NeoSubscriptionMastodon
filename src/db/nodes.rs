@@ -93,7 +93,9 @@ fn serialize_server_params(params: Option<&ServerConfig>) -> Result<Option<Strin
 
 fn deserialize_params(protocol: &str, raw: &str) -> Result<ProxyKind, DbErr> {
     let parsed: ProxyKind = serde_json::from_str(raw).map_err(|error| {
-        DbErr::Custom(format!("node protocol `{protocol}` has invalid params: {error}"))
+        DbErr::Custom(format!(
+            "node protocol `{protocol}` has invalid params: {error}"
+        ))
     })?;
 
     if parsed.protocol_str() != protocol {
@@ -110,7 +112,10 @@ fn to_summary(node: Node) -> Result<NodeSummary, DbErr> {
     let params = deserialize_params(&node.protocol, &node.params)?;
     let server_params = match node.server_params.as_deref() {
         Some(raw) if !raw.is_empty() => Some(serde_json::from_str(raw).map_err(|error| {
-            DbErr::Custom(format!("node {} has invalid server params: {error}", node.id))
+            DbErr::Custom(format!(
+                "node {} has invalid server params: {error}",
+                node.id
+            ))
         })?),
         _ => None,
     };
@@ -239,7 +244,10 @@ pub async fn update(
 
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> Result<bool, DbErr> {
     credentials::delete_for_node(conn, id).await?;
-    let changed = nodes::Entity::delete_by_id(id).exec(conn).await?.rows_affected;
+    let changed = nodes::Entity::delete_by_id(id)
+        .exec(conn)
+        .await?
+        .rows_affected;
     Ok(changed > 0)
 }
 

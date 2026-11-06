@@ -9,15 +9,21 @@
 
 import { createContext, useContext } from "react";
 import type { PaletteMode } from "@mui/material";
+import { DEFAULT_ACCENT } from "../theme";
 
 export type ColorModeContextValue = {
   mode: PaletteMode;
   toggle: () => void;
+  /** `#rrggbb` accent applied to primary actions, focus rings and selection. */
+  accent: string;
+  setAccent: (accent: string) => void;
 };
 
 export const ColorModeContext = createContext<ColorModeContextValue>({
   mode: "dark",
   toggle: () => undefined,
+  accent: DEFAULT_ACCENT,
+  setAccent: () => undefined,
 });
 
 export function useColorMode() {
@@ -25,3 +31,4 @@ export function useColorMode() {
 }
 
 export const COLOR_MODE_STORAGE_KEY = "nsm.color-mode";
+export const ACCENT_STORAGE_KEY = "nsm.accent";

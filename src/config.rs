@@ -21,7 +21,11 @@ const DEFAULT_CONFIG_FILE: &str = "config.yml";
 
 /// Command line interface for the NSM server.
 #[derive(Parser, Debug)]
-#[command(name = "nsm", version, about = "NeoSubscriptionMastodon subscription manager")]
+#[command(
+    name = "nsm",
+    version,
+    about = "NeoSubscriptionMastodon subscription manager"
+)]
 struct CliArgs {
     /// Path to the YAML configuration file.
     #[arg(short, long, default_value = DEFAULT_CONFIG_FILE)]
@@ -42,10 +46,12 @@ pub struct AppConfig {
     /// Overrides the built-in `404.html` disguise page when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disguise_page: Option<PathBuf>,
-    /// Host that only serves subscription links. Empty disables host routing.
+    /// Host that serves subscription links. Empty disables host routing; when it
+    /// equals `admin_host`, one host serves both sides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subscription_host: Option<String>,
-    /// Host that only serves the admin UI and API. Empty disables host routing.
+    /// Host that serves the admin UI and API. Empty disables host routing; when
+    /// it equals `subscription_host`, one host serves both sides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_host: Option<String>,
     /// Overrides the database subscription prefix when set.
@@ -131,7 +137,10 @@ impl AppConfig {
     /// Writes a commented template rather than a bare serialisation, so a fresh
     /// install is self-documenting.
     pub fn write_template(&self, path: &Path) -> anyhow::Result<()> {
-        if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
             fs::create_dir_all(parent).with_context(|| {
                 format!("create config parent directory at {}", parent.display())
             })?;
@@ -172,12 +181,16 @@ cookie_secure: {cookie_secure}
 # X-Forwarded-Host, the request is classified as "unknown" and answered with the
 # disguise page.
 
-# Host that only serves subscription links. Everything else on this host -
-# including the admin UI and its API - answers 404.
+# Host that serves subscription links. When admin_host is unset, this host also
+# serves the admin UI and API.
 # subscription_host: sub.example.com
 
-# Host that only serves the admin UI and API. Subscription paths on this host
-# answer 404.
+# Host that serves the admin UI and API. When subscription_host is unset, this
+# host also serves subscription links.
+# Set both to the SAME hostname to serve everything from one domain: requests
+# for any other hostname then get the disguise page, so the service stays
+# invisible on names you did not configure. Unset both to accept every hostname
+# without checking.
 # admin_host: panel.example.com
 
 # Subscription path prefix. Takes precedence over the value stored in the
@@ -204,8 +217,8 @@ cookie_secure: {cookie_secure}
     }
 
     fn read_from_file(path: &Path) -> anyhow::Result<Self> {
-        let file =
-            fs::File::open(path).with_context(|| format!("open config file at {}", path.display()))?;
+        let file = fs::File::open(path)
+            .with_context(|| format!("open config file at {}", path.display()))?;
         let reader = BufReader::new(file);
         let parsed: Self = serde_yaml::from_reader(reader)
             .with_context(|| format!("parse yaml config from {}", path.display()))?;
@@ -213,7 +226,11 @@ cookie_secure: {cookie_secure}
         // Derived paths are never trusted from disk so `data_root` stays authoritative.
         Ok(
             Self::from_parts(parsed.bind_addr, parsed.data_root, parsed.cookie_secure)
-                .with_scope(parsed.disguise_page, parsed.subscription_host, parsed.admin_host)
+                .with_scope(
+                    parsed.disguise_page,
+                    parsed.subscription_host,
+                    parsed.admin_host,
+                )
                 .with_prefixes(parsed.subscription_prefix, parsed.admin_path_prefix),
         )
     }
@@ -254,15 +271,6 @@ cookie_secure: {cookie_secure}
 
     /// Rejects configurations that cannot be served unambiguously.
     pub fn validate(&self) -> anyhow::Result<()> {
-        if let (Some(sub), Some(admin)) = (&self.subscription_host, &self.admin_host)
-            && sub == admin
-        {
-            anyhow::bail!(
-                "subscription_host and admin_host are both {sub}; \
-                 leave one empty or use two different hostnames"
-            );
-        }
-
         let admin = self.admin_prefix();
         if !admin.is_empty() {
             if !admin.starts_with('/') {
@@ -472,13 +480,13 @@ mod tests {
     }
 
     #[test]
-    fn identical_hosts_are_rejected() {
+    fn identical_hosts_serve_both_sides() {
         let config = AppConfig {
             subscription_host: Some("example.com".to_owned()),
             admin_host: Some("example.com".to_owned()),
             ..AppConfig::default()
         };
-        assert!(config.validate().is_err());
+        assert!(config.validate().is_ok());
     }
 
     #[test]

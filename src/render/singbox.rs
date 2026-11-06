@@ -9,7 +9,7 @@
 //!
 //! Reference: <https://sing-box.sagernet.org/configuration/outbound/>
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::protocol::{
     AnytlsConfig, Hysteria2Config, ProxyKind, QuicConfig, TlsConfig, Transport, TrojanConfig,
@@ -416,11 +416,14 @@ fn insert_mux(object: &mut Map<String, Value>, mux: &crate::protocol::MuxConfig)
         multiplex.insert("padding".to_owned(), json!(true));
     }
     if let Some(brutal) = mux.brutal.as_ref() {
-        multiplex.insert("brutal".to_owned(), json!({
-            "enabled": brutal.enabled,
-            "up_mbps": brutal.up_mbps,
-            "down_mbps": brutal.down_mbps,
-        }));
+        multiplex.insert(
+            "brutal".to_owned(),
+            json!({
+                "enabled": brutal.enabled,
+                "up_mbps": brutal.up_mbps,
+                "down_mbps": brutal.down_mbps,
+            }),
+        );
     }
 
     object.insert("multiplex".to_owned(), Value::Object(multiplex));
@@ -454,7 +457,7 @@ mod tests {
     use crate::protocol::shared::transport::{
         GrpcOptions, WebSocketOptions, XhttpExtra, XhttpMode, XhttpOptions,
     };
-    use crate::protocol::{RealityConfig, MuxConfig};
+    use crate::protocol::{MuxConfig, RealityConfig};
     use crate::render::context::{RenderCredentials, RenderUser};
 
     fn context(params: ProxyKind) -> RenderContext {
@@ -463,11 +466,7 @@ mod tests {
                 id: 1,
                 remark: String::new(),
             },
-            RenderCredentials::new(
-                "b0dd64e4-0fbd-4038-9139-d1f32a68a0dc",
-                "pw",
-                "alice@tokyo",
-            ),
+            RenderCredentials::new("b0dd64e4-0fbd-4038-9139-d1f32a68a0dc", "pw", "alice@tokyo"),
             params,
         )
         .with_node("example.com", 443, "Tokyo")

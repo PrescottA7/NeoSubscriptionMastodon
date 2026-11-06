@@ -44,7 +44,9 @@ impl TlsConfig {
     }
 
     pub fn reality_enabled(&self) -> bool {
-        self.reality.as_ref().is_some_and(|reality| reality.is_usable())
+        self.reality
+            .as_ref()
+            .is_some_and(|reality| reality.is_usable())
     }
 
     /// Effective SNI, preferring the explicit value over the node address.
@@ -74,7 +76,9 @@ impl TlsConfig {
 
     /// Non-empty pinned certificate hash.
     pub fn certificate_sha256_value(&self) -> Option<&str> {
-        self.certificate_sha256.as_deref().filter(|value| !value.is_empty())
+        self.certificate_sha256
+            .as_deref()
+            .filter(|value| !value.is_empty())
     }
 }
 

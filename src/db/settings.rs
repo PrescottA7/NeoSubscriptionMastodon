@@ -5,9 +5,7 @@
 // GNU Affero General Public License v3.0 or later. See the LICENSE file
 // in the project root for the full text.
 
-use sea_orm::{
-    ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, QueryOrder, Set,
-};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
 
 use crate::utils::normalize_path;
@@ -30,7 +28,7 @@ pub const KEY_SITE_NAME: &str = "site_name";
 pub const KEY_DISGUISE_PASSTHROUGH: &str = "disguise_passthrough";
 /// Key of the sample page the disguise pass-through mirrors.
 pub const KEY_DISGUISE_TEMPLATE_URL: &str = "disguise_template_url";
-/// Key of the dial IP that overrides DNS resolution for the sample page.
+/// Key of the dial address that overrides DNS resolution for the sample page.
 pub const KEY_DISGUISE_TEMPLATE_IP: &str = "disguise_template_ip";
 /// Key of the dial port that overrides the URL port for the sample page.
 pub const KEY_DISGUISE_TEMPLATE_PORT: &str = "disguise_template_port";
@@ -103,7 +101,10 @@ pub async fn get(conn: &DatabaseConnection, key: &str) -> Result<Option<String>,
 }
 
 pub async fn set(conn: &DatabaseConnection, key: &str, value: &str) -> Result<(), DbErr> {
-    match settings::Entity::find_by_id(key.to_owned()).one(conn).await? {
+    match settings::Entity::find_by_id(key.to_owned())
+        .one(conn)
+        .await?
+    {
         Some(existing) => {
             let mut active: settings::ActiveModel = existing.into();
             active.value = Set(value.to_owned());
@@ -122,7 +123,9 @@ pub async fn set(conn: &DatabaseConnection, key: &str, value: &str) -> Result<()
 }
 
 pub async fn remove(conn: &DatabaseConnection, key: &str) -> Result<(), DbErr> {
-    settings::Entity::delete_by_id(key.to_owned()).exec(conn).await?;
+    settings::Entity::delete_by_id(key.to_owned())
+        .exec(conn)
+        .await?;
     Ok(())
 }
 
@@ -178,7 +181,9 @@ pub async fn update(
     if let Some(prefix) = input.subscription_prefix.as_deref() {
         let normalized = normalize_path(prefix);
         if normalized.is_empty() {
-            return Err(DbErr::Custom("subscription prefix cannot be empty".to_owned()));
+            return Err(DbErr::Custom(
+                "subscription prefix cannot be empty".to_owned(),
+            ));
         }
         if normalized == "/api" || normalized.starts_with("/api/") {
             return Err(DbErr::Custom(
@@ -205,7 +210,12 @@ pub async fn update(
     }
 
     if let Some(enabled) = input.disguise_passthrough {
-        set(conn, KEY_DISGUISE_PASSTHROUGH, if enabled { "true" } else { "false" }).await?;
+        set(
+            conn,
+            KEY_DISGUISE_PASSTHROUGH,
+            if enabled { "true" } else { "false" },
+        )
+        .await?;
     }
 
     if let Some(url) = input.disguise_template_url.as_deref() {

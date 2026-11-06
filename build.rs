@@ -37,7 +37,9 @@ fn has_pnpm() -> bool {
         Command::new("pnpm").arg("--version").output()
     };
 
-    output.map(|output| output.status.success()).unwrap_or(false)
+    output
+        .map(|output| output.status.success())
+        .unwrap_or(false)
 }
 
 fn has_bundle() -> bool {
@@ -61,7 +63,9 @@ fn main() {
         if has_bundle() {
             println!("cargo:warning=pnpm not found, reusing the existing frontend/dist");
         } else {
-            println!("cargo:warning=pnpm not found and frontend/dist is missing, the admin UI will be unavailable");
+            println!(
+                "cargo:warning=pnpm not found and frontend/dist is missing, the admin UI will be unavailable"
+            );
         }
         return;
     }

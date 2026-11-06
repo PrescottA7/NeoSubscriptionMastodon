@@ -6,13 +6,13 @@
 // in the project root for the full text.
 
 use axum::{
+    Json, Router,
     extract::State,
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
-use axum_extra::extract::{cookie::Cookie, CookieJar};
+use axum_extra::extract::{CookieJar, cookie::Cookie};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::{self, RequireAuth, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS};
@@ -43,9 +43,10 @@ pub fn routes(state: &AppState) -> Router<AppState> {
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/me", get(me))
         .route("/api/auth/password", post(change_password))
-        .route_layer(axum::middleware::from_extractor_with_state::<RequireAuth, AppState>(
-            state.clone(),
-        ));
+        .route_layer(axum::middleware::from_extractor_with_state::<
+            RequireAuth,
+            AppState,
+        >(state.clone()));
 
     let public = Router::new()
         .route("/api/auth/setup-status", get(setup_status))
@@ -124,12 +125,9 @@ async fn change_password(
 ) -> RequestResult<StatusCode> {
     validate_credentials(&admin.username, &payload.new_password)?;
 
-    let verified = crate::db::admins::verify_login(
-        &state.db,
-        &admin.username,
-        &payload.current_password,
-    )
-    .await?;
+    let verified =
+        crate::db::admins::verify_login(&state.db, &admin.username, &payload.current_password)
+            .await?;
     if verified.is_none() {
         return Err(RequestError::unauthorized("当前密码不正确"));
     }
@@ -169,7 +167,8 @@ async fn issue_cookie(state: &AppState, cookies: CookieJar) -> RequestResult<Coo
         // Scoping the cookie to the admin prefix keeps the session off the
         // subscription paths when both live under the same host.
         .path(cookie_path(state))
-        .http_only(true)        .same_site(axum_extra::extract::cookie::SameSite::Lax)
+        .http_only(true)
+        .same_site(axum_extra::extract::cookie::SameSite::Lax)
         .secure(state.config.cookie_secure)
         // Without Max-Age the cookie dies when the browser closes, which both
         // breaks "stay logged in" and hides the real cause of a failed login.

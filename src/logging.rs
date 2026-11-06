@@ -7,7 +7,7 @@
 
 use std::io::IsTerminal;
 
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Rotate the log file once it grows past this size.
 const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;

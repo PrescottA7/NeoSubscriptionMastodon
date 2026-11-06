@@ -69,11 +69,7 @@ pub struct RenderContext {
 
 impl RenderContext {
     /// Builds a context for a single node.
-    pub fn new(
-        user: RenderUser,
-        credentials: RenderCredentials,
-        params: ProxyKind,
-    ) -> Self {
+    pub fn new(user: RenderUser, credentials: RenderCredentials, params: ProxyKind) -> Self {
         Self {
             user,
             credentials,
@@ -121,7 +117,11 @@ impl RenderContext {
 
     /// Outbound tag, guaranteed unique within a collection.
     pub fn tag(&self) -> String {
-        format!("{}-{}", slugify(&self.node_name, self.params.protocol_str()), self.index + 1)
+        format!(
+            "{}-{}",
+            slugify(&self.node_name, self.params.protocol_str()),
+            self.index + 1
+        )
     }
 
     /// Effective TLS configuration of the underlying protocol.
@@ -134,7 +134,13 @@ impl RenderContext {
 pub fn slugify(value: &str, fallback: &str) -> String {
     let slug: String = value
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect();
 
     let trimmed = slug.trim_matches('-');
@@ -177,15 +183,21 @@ mod tests {
 
     #[test]
     fn label_appends_the_user_remark() {
-        let context = RenderContext::new(user("Alice"), credentials(), vless())
-            .with_node("example.com", 443, "Tokyo");
+        let context = RenderContext::new(user("Alice"), credentials(), vless()).with_node(
+            "example.com",
+            443,
+            "Tokyo",
+        );
         assert_eq!(context.label(), "Tokyo - Alice");
     }
 
     #[test]
     fn label_omits_empty_remark() {
-        let context = RenderContext::new(user(""), credentials(), vless())
-            .with_node("example.com", 443, "Tokyo");
+        let context = RenderContext::new(user(""), credentials(), vless()).with_node(
+            "example.com",
+            443,
+            "Tokyo",
+        );
         assert_eq!(context.label(), "Tokyo");
     }
 

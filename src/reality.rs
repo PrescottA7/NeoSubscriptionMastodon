@@ -107,7 +107,6 @@ mod tests {
         assert_eq!(first, pair.public_key);
     }
 
-
     #[test]
     fn padded_and_standard_base64_are_accepted() {
         let pair = generate();

@@ -9,7 +9,7 @@
 //!
 //! When enabled a failed public lookup is no longer answered with a static page:
 //! the request is forwarded to the template URL and the sample response is
-//! returned as-is. An optional IP/port pair overrides DNS, so the template's
+//! returned as-is. An optional address/port pair overrides DNS, so the template's
 //! hostname can be pointed at a specific origin while `Host` and SNI keep the
 //! template's own hostname.
 
@@ -18,13 +18,13 @@ use std::sync::{Arc, OnceLock};
 use axum::{
     body::{Body, Bytes},
     http::{
-        header::{self, HeaderMap, HeaderName, HeaderValue},
         Method, StatusCode, Uri,
+        header::{self, HeaderMap, HeaderName, HeaderValue},
     },
     response::Response,
 };
 use http_body_util::BodyExt;
-use rustls::{pki_types::ServerName, ClientConfig, RootCertStore};
+use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tracing::debug;
@@ -55,7 +55,7 @@ pub struct Target {
     pub authority: String,
     /// Host without the port, used for SNI.
     pub host: String,
-    /// Dial address; honours the configured IP override.
+    /// Dial address; honours the configured address override.
     pub dial_addr: String,
     /// Origin-form request target, including the probe path.
     pub path_and_query: String,
@@ -89,19 +89,28 @@ impl Target {
             format!("{host}:{port}")
         };
 
-        // An explicit IP replaces DNS but keeps the hostname for Host and SNI.
-        let dial_host = if settings.disguise_template_ip.is_empty() {
+        // An explicit address replaces DNS but keeps the hostname for Host and
+        // SNI. It may be an IP or a name such as `host.docker.internal`.
+        let override_host = settings.disguise_template_ip.trim();
+        let dial_host = if override_host.is_empty() {
             host.clone()
         } else {
-            settings.disguise_template_ip.clone()
+            override_host
+                .trim_matches(|c| c == '[' || c == ']')
+                .to_owned()
         };
-        let dial_addr = if dial_host.contains(':') {
+        let dial_addr = if let Some(stripped) = dial_host.strip_prefix('[') {
+            let inner = stripped.strip_suffix(']').unwrap_or(stripped);
+            format!("[{inner}]:{port}")
+        } else if dial_host.parse::<std::net::Ipv6Addr>().is_ok() {
             format!("[{dial_host}]:{port}")
         } else {
             format!("{dial_host}:{port}")
         };
 
-        let uri: Uri = format!("https://{authority}{path_and_query}").parse().ok()?;
+        let uri: Uri = format!("https://{authority}{path_and_query}")
+            .parse()
+            .ok()?;
 
         Some(Self {
             authority,
@@ -147,7 +156,11 @@ impl Target {
             return Err("upstream response too large".to_owned());
         }
 
-        Ok(MirrorResponse { status, headers, body })
+        Ok(MirrorResponse {
+            status,
+            headers,
+            body,
+        })
     }
 
     async fn send<B>(
@@ -160,8 +173,10 @@ impl Target {
         B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     {
         // The connector is keyed on the URI, but our URI carries the template's
-        // hostname while we may need to dial a fixed IP. `HttpConnector` cannot
-        // be told that, so the connection is opened here and handed to hyper.
+        // hostname while we may need to dial a fixed address. `HttpConnector`
+        // cannot be told that, so the connection is opened here and handed to
+        // hyper. `TcpStream::connect` resolves names, so the override may be a
+        // hostname such as `host.docker.internal` as well as an IP.
         let stream = tokio::time::timeout(TIMEOUT, TcpStream::connect(&self.dial_addr))
             .await
             .map_err(|_| format!("connect {} timed out", self.dial_addr))?
@@ -175,13 +190,11 @@ impl Target {
             .map_err(|error| format!("TLS handshake: {error}"))?;
 
         let io = hyper_util::rt::TokioIo::new(tls);
-        let (mut sender, connection) = tokio::time::timeout(
-            TIMEOUT,
-            hyper::client::conn::http1::handshake::<_, B>(io),
-        )
-        .await
-        .map_err(|_| "pipeline handshake timed out".to_owned())?
-        .map_err(|error| format!("pipeline handshake: {error}"))?;
+        let (mut sender, connection) =
+            tokio::time::timeout(TIMEOUT, hyper::client::conn::http1::handshake::<_, B>(io))
+                .await
+                .map_err(|_| "pipeline handshake timed out".to_owned())?
+                .map_err(|error| format!("pipeline handshake: {error}"))?;
 
         tokio::spawn(async move {
             if let Err(error) = connection.await {
@@ -397,6 +410,16 @@ mod tests {
     }
 
     #[test]
+    fn a_configured_hostname_replaces_dns_but_not_the_host() {
+        let mut settings = settings();
+        settings.disguise_template_ip = "host.docker.internal".to_owned();
+        let target = Target::from_settings(&settings, "/").expect("target");
+        assert_eq!(target.dial_addr, "host.docker.internal:443");
+        assert_eq!(target.authority, "sample.example.com");
+        assert_eq!(target.host, "sample.example.com");
+    }
+
+    #[test]
     fn an_ipv6_override_is_bracketed() {
         let mut settings = settings();
         settings.disguise_template_ip = "2001:db8::1".to_owned();
@@ -424,10 +447,12 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::HOST, HeaderValue::from_static("probe.example.net"));
         let request: hyper::Request<http_body_util::Empty<Bytes>> =
-            build_request("/admin", "sample.example.com", &Method::GET, &headers)
-                .expect("request");
+            build_request("/admin", "sample.example.com", &Method::GET, &headers).expect("request");
         assert_eq!(
-            request.headers().get(header::HOST).and_then(|v| v.to_str().ok()),
+            request
+                .headers()
+                .get(header::HOST)
+                .and_then(|v| v.to_str().ok()),
             Some("sample.example.com")
         );
         // Origin form, not an absolute-form proxy request.

@@ -6,11 +6,11 @@
 // in the project root for the full text.
 
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use serde::Serialize;
 
@@ -63,12 +63,16 @@ impl UserView {
 pub fn routes(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/api/users", get(list_users).post(create_user))
-        .route("/api/users/{id}", get(get_user).patch(update_user).delete(delete_user))
+        .route(
+            "/api/users/{id}",
+            get(get_user).patch(update_user).delete(delete_user),
+        )
         .route("/api/users/{id}/reset-link", post(reset_link))
         .route("/api/users/{id}/credentials", get(list_user_credentials))
-        .route_layer(axum::middleware::from_extractor_with_state::<RequireAuth, AppState>(
-            state.clone(),
-        ))
+        .route_layer(axum::middleware::from_extractor_with_state::<
+            RequireAuth,
+            AppState,
+        >(state.clone()))
 }
 
 async fn list_users(State(state): State<AppState>) -> RequestResult<Json<Vec<UserView>>> {
@@ -96,7 +100,9 @@ async fn create_user(
 ) -> RequestResult<Response> {
     validate_new_user(&payload)?;
 
-    let CreatedUser { user, token } = users::create(&state.db, &payload).await.map_err(slug_error)?;
+    let CreatedUser { user, token } = users::create(&state.db, &payload)
+        .await
+        .map_err(slug_error)?;
     let prefix = state.subscription_prefix();
 
     Ok((
@@ -147,11 +153,7 @@ fn validate_slug(validator: &mut Validator, token: Option<&str>) {
         return;
     };
 
-    validator.require(
-        token.len() <= 64,
-        "token",
-        "订阅路径最多 64 个字符",
-    );
+    validator.require(token.len() <= 64, "token", "订阅路径最多 64 个字符");
     validator.require(
         token
             .chars()

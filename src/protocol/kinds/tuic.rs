@@ -48,9 +48,7 @@ impl Default for TuicConfig {
 
 impl TuicConfig {
     pub fn heartbeat_value(&self) -> Option<&str> {
-        self.heartbeat
-            .as_deref()
-            .filter(|value| !value.is_empty())
+        self.heartbeat.as_deref().filter(|value| !value.is_empty())
     }
 
     pub fn validate(&self) -> Result<(), String> {

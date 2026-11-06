@@ -282,14 +282,21 @@ describe("validateSettingsForm", () => {
     ).toBe(true);
   });
 
-  it("rejects a malformed override ip and port", () => {
+  it("rejects a malformed override address and port", () => {
     const errors = validateSettingsForm({
       ...base,
-      disguise_template_ip: "sample.example.com",
+      disguise_template_ip: "https://host.docker.internal",
       disguise_template_port: "70000",
     });
-    expect(errors.disguise_template_ip).toBe("服务器 IP 必须是合法地址");
+    expect(errors.disguise_template_ip).toBe("服务器地址只填主机名或 IP，不要带协议或路径");
     expect(errors.disguise_template_port).toBe("服务器端口必须在 0-65535 之间");
+  });
+
+  it("accepts a hostname override", () => {
+    expect(
+      validateSettingsForm({ ...base, disguise_template_ip: "host.docker.internal" })
+        .disguise_template_ip,
+    ).toBeUndefined();
   });
 
   it("accepts an ipv6 override", () => {

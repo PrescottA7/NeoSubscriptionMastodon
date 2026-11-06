@@ -28,7 +28,12 @@ impl Validator {
     }
 
     /// Records an error when `condition` is false.
-    pub fn require(&mut self, condition: bool, field: impl Into<String>, message: impl Into<String>) {
+    pub fn require(
+        &mut self,
+        condition: bool,
+        field: impl Into<String>,
+        message: impl Into<String>,
+    ) {
         if !condition {
             self.push(field, message);
         }
@@ -216,6 +221,9 @@ mod tests {
         validator.port("port", 0);
         let error = validator.finish().expect_err("should fail");
         let response = error.into_response();
-        assert_eq!(response.status(), axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 }

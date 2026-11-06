@@ -7,7 +7,7 @@
 
 use axum::{
     body::Body,
-    http::{header, HeaderValue, StatusCode},
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use rust_embed::RustEmbed;
@@ -29,7 +29,9 @@ pub async fn serve_static(prefix: &str, asset_path: &str) -> Response {
     let path = if path.is_empty() { "index.html" } else { path };
 
     match Assets::get(path) {
-        Some(content) if path == "index.html" => text_response(content.data, prefix, "text/html; charset=utf-8", false),
+        Some(content) if path == "index.html" => {
+            text_response(content.data, prefix, "text/html; charset=utf-8", false)
+        }
         Some(content) => asset_response(content.data, path, prefix),
         None => match Assets::get("index.html") {
             Some(content) => text_response(content.data, prefix, "text/html; charset=utf-8", false),
@@ -38,22 +40,13 @@ pub async fn serve_static(prefix: &str, asset_path: &str) -> Response {
     }
 }
 
-fn asset_response(
-    data: std::borrow::Cow<'static, [u8]>,
-    path: &str,
-    prefix: &str,
-) -> Response {
+fn asset_response(data: std::borrow::Cow<'static, [u8]>, path: &str, prefix: &str) -> Response {
     let mime = mime_guess::from_path(path).first_or_octet_stream();
 
     // CSS and JS reference fonts and chunks through the same placeholder, so the
     // rewrite has to happen wherever it appears, not only in `index.html`.
-    let text = matches!(
-        mime.type_().as_str(),
-        "text" | "application"
-    ) && matches!(
-        mime.subtype().as_str(),
-        "css" | "javascript" | "json"
-    );
+    let text = matches!(mime.type_().as_str(), "text" | "application")
+        && matches!(mime.subtype().as_str(), "css" | "javascript" | "json");
 
     if text {
         return text_response(data, prefix, mime.as_ref(), true);
@@ -88,7 +81,8 @@ fn text_response(
     let mut response = Response::new(Body::from(body));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type).unwrap_or(HeaderValue::from_static("text/plain; charset=utf-8")),
+        HeaderValue::from_str(content_type)
+            .unwrap_or(HeaderValue::from_static("text/plain; charset=utf-8")),
     );
     response.headers_mut().insert(
         header::CACHE_CONTROL,

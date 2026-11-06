@@ -72,7 +72,14 @@ export default function PageContainer({
         <SideMenu pages={pages} username={username} onLogout={onLogout} />
         <Box component="main" sx={{ flexGrow: 1, minWidth: 0 }}>
           {toolbar}
-          <Box sx={{ px: { xs: 2, md: 4 }, py: { xs: 3, md: 4 }, maxWidth: 1120 }}>
+          <Box
+            sx={{
+              width: "100%",
+              maxWidth: 1280,
+              px: { xs: 2, md: 4 },
+              py: { xs: 3, md: 4 },
+            }}
+          >
             {children}
           </Box>
         </Box>

@@ -6,7 +6,7 @@
 // in the project root for the full text.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
 /// Stream transport used below the proxy protocol.
@@ -249,8 +249,16 @@ impl XhttpExtra {
         text(&mut map, "uplinkDataKey", &self.uplink_data_key);
         text(&mut map, "uplinkChunkSize", &self.uplink_chunk_size);
         text(&mut map, "scMaxEachPostBytes", &self.sc_max_each_post_bytes);
-        text(&mut map, "scMinPostsIntervalMs", &self.sc_min_posts_interval_ms);
-        text(&mut map, "scStreamUpServerSecs", &self.sc_stream_up_server_secs);
+        text(
+            &mut map,
+            "scMinPostsIntervalMs",
+            &self.sc_min_posts_interval_ms,
+        );
+        text(
+            &mut map,
+            "scStreamUpServerSecs",
+            &self.sc_stream_up_server_secs,
+        );
 
         if let Some(value) = self.x_padding_obfs_mode {
             map.insert("xPaddingObfsMode".to_owned(), json!(value));
@@ -267,10 +275,20 @@ impl XhttpExtra {
         if let Some(value) = self.server_max_header_bytes.filter(|value| *value > 0) {
             map.insert("serverMaxHeaderBytes".to_owned(), json!(value));
         }
-        if let Some(xmux) = self.xmux.as_ref().map(XmuxOptions::to_wire).filter(|wire| !wire.is_empty()) {
+        if let Some(xmux) = self
+            .xmux
+            .as_ref()
+            .map(XmuxOptions::to_wire)
+            .filter(|wire| !wire.is_empty())
+        {
             map.insert("xmux".to_owned(), Value::Object(xmux));
         }
-        if let Some(download) = self.download_settings.as_ref().map(DownloadSettings::to_wire).filter(|wire| !wire.is_empty()) {
+        if let Some(download) = self
+            .download_settings
+            .as_ref()
+            .map(DownloadSettings::to_wire)
+            .filter(|wire| !wire.is_empty())
+        {
             map.insert("downloadSettings".to_owned(), Value::Object(download));
         }
 
@@ -597,7 +615,10 @@ mod tests {
         assert_eq!(extra.sc_max_each_post_bytes.as_deref(), Some("1000000"));
         assert_eq!(extra.no_sse_header, Some(true));
         assert_eq!(
-            extra.xmux.as_ref().and_then(|xmux| xmux.max_concurrency.as_deref()),
+            extra
+                .xmux
+                .as_ref()
+                .and_then(|xmux| xmux.max_concurrency.as_deref()),
             Some("16-32")
         );
 

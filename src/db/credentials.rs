@@ -80,7 +80,11 @@ pub fn generate_password() -> String {
 
 /// Default account label, matching the `email` field proxy servers display.
 pub fn default_email(remark: &str, username_hint: &str, node_name: &str) -> String {
-    let label = if !remark.is_empty() { remark } else { username_hint };
+    let label = if !remark.is_empty() {
+        remark
+    } else {
+        username_hint
+    };
     let label: String = label
         .chars()
         .map(|c| {
@@ -241,9 +245,12 @@ pub async fn resolved_for_user(
         if !node.enabled {
             continue;
         }
-        let password = key
-            .decrypt(&row.password)
-            .map_err(|error| DbErr::Custom(format!("credential {}/{}: {error}", row.node_id, row.user_id)))?;
+        let password = key.decrypt(&row.password).map_err(|error| {
+            DbErr::Custom(format!(
+                "credential {}/{}: {error}",
+                row.node_id, row.user_id
+            ))
+        })?;
         resolved.push((
             node,
             ResolvedCredential {

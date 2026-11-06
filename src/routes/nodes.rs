@@ -6,11 +6,11 @@
 // in the project root for the full text.
 
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use serde::Serialize;
 
@@ -50,14 +50,18 @@ pub fn routes(state: &AppState) -> Router<AppState> {
             "/api/nodes/{id}/enabled",
             axum::routing::patch(set_node_enabled),
         )
-        .route("/api/nodes/{id}/suggested-credentials", get(suggest_credentials))
+        .route(
+            "/api/nodes/{id}/suggested-credentials",
+            get(suggest_credentials),
+        )
         .route(
             "/api/nodes/{id}/credentials/{user_id}/rotate",
             post(rotate_credential),
         )
-        .route_layer(axum::middleware::from_extractor_with_state::<RequireAuth, AppState>(
-            state.clone(),
-        ))
+        .route_layer(axum::middleware::from_extractor_with_state::<
+            RequireAuth,
+            AppState,
+        >(state.clone()))
 }
 
 /// Describes the protocols the UI should offer, so the form stays in sync with
@@ -87,8 +91,7 @@ async fn get_node(
     let node = nodes::get(&state.db, id)
         .await?
         .ok_or_else(|| RequestError::not_found(format!("节点 {id} 不存在")))?;
-    let credentials =
-        crate::db::credentials::list_for_node(&state.db, &state.key, id).await?;
+    let credentials = crate::db::credentials::list_for_node(&state.db, &state.key, id).await?;
 
     Ok(Json(NodeDetail { node, credentials }))
 }
@@ -198,7 +201,8 @@ async fn set_node_enabled(
 async fn delete_node(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> RequestResult<StatusCode> {    if nodes::delete(&state.db, id).await? {
+) -> RequestResult<StatusCode> {
+    if nodes::delete(&state.db, id).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(RequestError::not_found(format!("节点 {id} 不存在")))

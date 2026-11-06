@@ -49,11 +49,7 @@ fn request_host(headers: &axum::http::HeaderMap) -> Option<String> {
     let lowered = raw.trim().to_ascii_lowercase();
     let host = match lowered.rfind(']') {
         Some(index) if lowered.starts_with('[') => lowered[..=index].to_owned(),
-        _ => lowered
-            .split(':')
-            .next()
-            .unwrap_or(&lowered)
-            .to_owned(),
+        _ => lowered.split(':').next().unwrap_or(&lowered).to_owned(),
     };
     (!host.is_empty()).then_some(host)
 }
@@ -125,7 +121,9 @@ impl AppState {
     /// Which side of the service a request belongs to.
     ///
     /// When either host is configured, a request that matches neither is treated
-    /// as a probe: it gets the disguise page rather than the admin area.
+    /// as a probe: it gets the disguise page rather than the admin area. Setting
+    /// both hosts to the same name therefore serves both sides from that one
+    /// hostname while still rejecting every other hostname.
     pub fn scope_for(&self, headers: &axum::http::HeaderMap) -> RequestScope {
         let host = request_host(headers);
         let subscription = self.config.subscription_host.as_deref();
@@ -136,6 +134,7 @@ impl AppState {
         }
 
         match host.as_deref() {
+            Some(host) if Some(host) == subscription && Some(host) == admin => RequestScope::Mixed,
             Some(host) if Some(host) == subscription => RequestScope::Subscription,
             Some(host) if Some(host) == admin => RequestScope::Admin,
             _ => RequestScope::Unknown,
@@ -276,6 +275,21 @@ mod tests {
             state.scope_for(&axum::http::HeaderMap::new()),
             RequestScope::Unknown
         );
+    }
+
+    #[tokio::test]
+    async fn a_shared_host_serves_both_sides_but_still_hides_others() {
+        let temp = tempdir().expect("temp dir");
+        let mut config = AppConfig::test_config(temp.path());
+        config.subscription_host = Some("example.com".to_owned());
+        config.admin_host = Some("example.com".to_owned());
+        let state = AppState::new(config).await.expect("state");
+
+        let shared = headers(&[("host", "example.com")]);
+        let other = headers(&[("host", "elsewhere.example.net")]);
+
+        assert_eq!(state.scope_for(&shared), RequestScope::Mixed);
+        assert_eq!(state.scope_for(&other), RequestScope::Unknown);
     }
 
     #[tokio::test]

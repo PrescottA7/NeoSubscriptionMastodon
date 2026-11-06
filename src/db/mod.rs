@@ -112,7 +112,8 @@ pub async fn init_schema(conn: &DatabaseConnection) -> Result<(), DbErr> {
 async fn migrate_legacy_tokens(conn: &DatabaseConnection) -> Result<(), DbErr> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, FromQueryResult, Statement};
 
-    if conn.get_database_backend() != DatabaseBackend::Sqlite || !table_exists(conn, "users").await?
+    if conn.get_database_backend() != DatabaseBackend::Sqlite
+        || !table_exists(conn, "users").await?
     {
         return Ok(());
     }
@@ -137,7 +138,10 @@ async fn migrate_legacy_tokens(conn: &DatabaseConnection) -> Result<(), DbErr> {
             [slug.into(), row.id.into()],
         ))
         .await?;
-        info!(user_id = row.id, "assigned a subscription slug to a legacy user");
+        info!(
+            user_id = row.id,
+            "assigned a subscription slug to a legacy user"
+        );
     }
 
     Ok(())
@@ -162,8 +166,11 @@ async fn ensure_column(
         return Ok(());
     }
 
-    conn.execute(Statement::from_string(DatabaseBackend::Sqlite, alter.to_owned()))
-        .await?;
+    conn.execute(Statement::from_string(
+        DatabaseBackend::Sqlite,
+        alter.to_owned(),
+    ))
+    .await?;
     info!(table, column, "added missing column");
     Ok(())
 }
@@ -220,15 +227,11 @@ async fn migrate_legacy_credentials(conn: &DatabaseConnection) -> Result<(), DbE
             info!(rows = done.rows_affected(), "migrated legacy credentials");
             // The legacy visibility table is superseded by the credential rows.
             let drop = "DROP TABLE node_users";
-            let _ = conn
-                .execute(Statement::from_string(backend, drop))
-                .await;
+            let _ = conn.execute(Statement::from_string(backend, drop)).await;
         }
         Ok(_) => {
             let drop = "DROP TABLE node_users";
-            let _ = conn
-                .execute(Statement::from_string(backend, drop))
-                .await;
+            let _ = conn.execute(Statement::from_string(backend, drop)).await;
         }
         Err(error) => {
             tracing::warn!(%error, "legacy credential migration skipped");
@@ -254,7 +257,11 @@ async fn table_exists(conn: &DatabaseConnection, name: &str) -> Result<bool, DbE
     Ok(conn.query_one(statement).await?.is_some())
 }
 
-async fn column_exists(conn: &DatabaseConnection, table: &str, column: &str) -> Result<bool, DbErr> {
+async fn column_exists(
+    conn: &DatabaseConnection,
+    table: &str,
+    column: &str,
+) -> Result<bool, DbErr> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
     let backend = conn.get_database_backend();

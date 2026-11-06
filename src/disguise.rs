@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use axum::{
     body::Body,
-    http::{header, HeaderValue, StatusCode},
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 
@@ -96,7 +96,10 @@ mod tests {
 
     #[test]
     fn custom_page_overrides_builtin() {
-        let disguise = Disguise::new(Some("<html>custom</html>".to_owned()), &AppSettings::default());
+        let disguise = Disguise::new(
+            Some("<html>custom</html>".to_owned()),
+            &AppSettings::default(),
+        );
         assert_eq!(disguise.page(), "<html>custom</html>");
     }
 
@@ -114,7 +117,9 @@ mod tests {
     async fn not_found_response_hides_identifying_headers() {
         let disguise = Disguise::new(None, &AppSettings::default());
         let mut response = disguise.not_found().await;
-        response.headers_mut().insert("x-powered-by", HeaderValue::from_static("php"));
+        response
+            .headers_mut()
+            .insert("x-powered-by", HeaderValue::from_static("php"));
         strip_identifying_headers(&mut response);
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);

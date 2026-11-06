@@ -8,9 +8,9 @@
 //! Request extractors that shape rejections like every other API error.
 
 use axum::{
+    Json,
     extract::{FromRequest, Request, rejection::JsonRejection},
     response::Response,
-    Json,
 };
 use serde::de::DeserializeOwned;
 
@@ -79,7 +79,11 @@ fn detail(raw: &str) -> Option<String> {
                 .find(" at line ")
                 .map(|index| raw[index + 1..].trim_end_matches('.').to_owned())
                 .unwrap_or_default();
-            return Some(format!("{advice} `{name}` {position}").trim_end().to_owned());
+            return Some(
+                format!("{advice} `{name}` {position}")
+                    .trim_end()
+                    .to_owned(),
+            );
         }
     }
 

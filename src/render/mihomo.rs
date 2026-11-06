@@ -27,10 +27,7 @@ pub fn render(context: &RenderContext) -> anyhow::Result<String> {
 /// Renders every node into a complete mihomo configuration.
 pub fn render_collection(contexts: &[RenderContext]) -> anyhow::Result<String> {
     let proxies: Vec<Value> = contexts.iter().map(proxy).collect();
-    let names: Vec<String> = contexts
-        .iter()
-        .map(|context| context.tag())
-        .collect();
+    let names: Vec<String> = contexts.iter().map(|context| context.tag()).collect();
 
     let mut root = Map::new();
     root.insert("mixed-port".to_owned(), Value::from(7890));
@@ -157,7 +154,10 @@ fn hysteria2(context: &RenderContext, config: &Hysteria2Config) -> Map<String, V
         object.insert("down".to_owned(), Value::String(down));
     }
     if let Some(obfs) = config.obfs_value() {
-        object.insert("obfs".to_owned(), Value::String(obfs.type_name().to_owned()));
+        object.insert(
+            "obfs".to_owned(),
+            Value::String(obfs.type_name().to_owned()),
+        );
         object.insert(
             "obfs-password".to_owned(),
             Value::String(obfs.password.clone()),
@@ -169,11 +169,12 @@ fn hysteria2(context: &RenderContext, config: &Hysteria2Config) -> Map<String, V
             object.insert("obfs-max-packet-size".to_owned(), Value::from(max));
         }
     }
-    if let Some(profile) = config.bbr_profile.as_deref().filter(|value| !value.is_empty()) {
-        object.insert(
-            "bbr-profile".to_owned(),
-            Value::String(profile.to_owned()),
-        );
+    if let Some(profile) = config
+        .bbr_profile
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        object.insert("bbr-profile".to_owned(), Value::String(profile.to_owned()));
     }
 
     insert_mihomo_tls(&mut object, &config.tls, &context.server);
@@ -183,7 +184,10 @@ fn hysteria2(context: &RenderContext, config: &Hysteria2Config) -> Map<String, V
 
 fn tuic(context: &RenderContext, config: &TuicConfig) -> Map<String, Value> {
     let mut object = base(context, "tuic");
-    object.insert("uuid".to_owned(), Value::String(context.credentials.uuid.clone()));
+    object.insert(
+        "uuid".to_owned(),
+        Value::String(context.credentials.uuid.clone()),
+    );
     object.insert(
         "password".to_owned(),
         Value::String(context.credentials.password.clone()),
@@ -287,10 +291,7 @@ fn insert_mihomo_tls(
         );
     }
     if let Some(hash) = tls.certificate_sha256_value() {
-        object.insert(
-            "fingerprint".to_owned(),
-            Value::String(hash.to_owned()),
-        );
+        object.insert("fingerprint".to_owned(), Value::String(hash.to_owned()));
     }
     if let Some(name) = tls
         .verify_peer_cert_by_name
@@ -310,10 +311,7 @@ fn insert_mihomo_tls(
             Value::String(reality.public_key.clone()),
         );
         if let Some(short_id) = reality.short_id_value() {
-            reality_object.insert(
-                "short-id".to_owned(),
-                Value::String(short_id.to_owned()),
-            );
+            reality_object.insert("short-id".to_owned(), Value::String(short_id.to_owned()));
         }
         object.insert("reality-opts".to_owned(), Value::Object(reality_object));
     }
@@ -328,10 +326,7 @@ fn insert_mihomo_quic(object: &mut Map<String, Value>, quic: &crate::protocol::Q
         );
     }
     if let Some(value) = quic.max_stream_receive_window {
-        object.insert(
-            "max-stream-receive-window".to_owned(),
-            Value::from(value),
-        );
+        object.insert("max-stream-receive-window".to_owned(), Value::from(value));
     }
     if let Some(value) = quic.initial_connection_receive_window {
         object.insert(
@@ -362,11 +357,14 @@ fn insert_network(object: &mut Map<String, Value>, transport: &Transport) {
                         Value::String(options.path_or_default().to_owned()),
                     );
                     if let Some(host) = options.host.as_deref().filter(|value| !value.is_empty()) {
-                        ws.insert("headers".to_owned(), Value::Object({
-                            let mut headers = Map::new();
-                            headers.insert("Host".to_owned(), Value::String(host.to_owned()));
-                            headers
-                        }));
+                        ws.insert(
+                            "headers".to_owned(),
+                            Value::Object({
+                                let mut headers = Map::new();
+                                headers.insert("Host".to_owned(), Value::String(host.to_owned()));
+                                headers
+                            }),
+                        );
                     }
                     if let Some(early) = options.max_early_data {
                         ws.insert("max-early-data".to_owned(), Value::from(early));
@@ -425,9 +423,7 @@ fn insert_network(object: &mut Map<String, Value>, transport: &Transport) {
                     }
                     http.insert(
                         "path".to_owned(),
-                        Value::Array(vec![Value::String(
-                            options.path_or_default().to_owned(),
-                        )]),
+                        Value::Array(vec![Value::String(options.path_or_default().to_owned())]),
                     );
                     http
                 }),
@@ -493,7 +489,10 @@ fn insert_network(object: &mut Map<String, Value>, transport: &Transport) {
 fn parse_seconds(value: &str) -> i64 {
     let trimmed = value.trim();
     if let Some(number) = trimmed.strip_suffix("ms") {
-        return number.parse::<i64>().map(|ms| ms / 1000).unwrap_or_default();
+        return number
+            .parse::<i64>()
+            .map(|ms| ms / 1000)
+            .unwrap_or_default();
     }
     trimmed
         .trim_end_matches(|c: char| c.is_ascii_alphabetic())
@@ -514,11 +513,7 @@ mod tests {
                 id: 1,
                 remark: String::new(),
             },
-            RenderCredentials::new(
-                "uuid-1",
-                "pw",
-                "alice@tokyo",
-            ),
+            RenderCredentials::new("uuid-1", "pw", "alice@tokyo"),
             params,
         )
         .with_node("example.com", 443, "Tokyo")

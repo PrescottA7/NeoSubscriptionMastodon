@@ -22,7 +22,9 @@ fn run() -> anyhow::Result<()> {
     let config = AppConfig::from_cli().context("load configuration")?;
 
     // Directories must exist before the logger can write into `data_root`.
-    config.ensure_directories().context("create data directory")?;
+    config
+        .ensure_directories()
+        .context("create data directory")?;
 
     let log_file = nsm::logging::init(&config.data_root).context("initialise logging")?;
 

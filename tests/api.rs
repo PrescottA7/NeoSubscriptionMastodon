@@ -10,11 +10,11 @@
 
 use axum::{
     body::Body,
-    http::{header, Method, Request, StatusCode},
+    http::{Method, Request, StatusCode, header},
     response::Response,
 };
-use nsm::{config::AppConfig, db, protocol::VlessConfig, AppState};
-use serde_json::{json, Value};
+use nsm::{AppState, config::AppConfig, db, protocol::VlessConfig};
+use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
@@ -213,7 +213,11 @@ async fn admin_routes_require_a_session() {
     let (status, _, _) = send(&harness, get_request("/api/users", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-    let (status, _, _) = send(&harness, get_request("/api/nodes", Some("nsm_session=bogus"))).await;
+    let (status, _, _) = send(
+        &harness,
+        get_request("/api/nodes", Some("nsm_session=bogus")),
+    )
+    .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
@@ -236,7 +240,12 @@ async fn user_and_node_crud_round_trip() {
     let created: Value = serde_json::from_str(&body).expect("json");
     let token = created["token"].as_str().expect("token").to_owned();
     let user_id = created["user"]["id"].as_i64().expect("user id");
-    assert!(created["subscription_path"].as_str().expect("path").starts_with("/s/"));
+    assert!(
+        created["subscription_path"]
+            .as_str()
+            .expect("path")
+            .starts_with("/s/")
+    );
 
     let (status, body, _) = send(
         &harness,
@@ -297,7 +306,12 @@ async fn node_enabled_toggle_keeps_protocol_params() {
 
     let (_, body, _) = send(
         &harness,
-        json_request(Method::POST, "/api/users", json!({ "remark": "Alice" }), Some(&cookie)),
+        json_request(
+            Method::POST,
+            "/api/users",
+            json!({ "remark": "Alice" }),
+            Some(&cookie),
+        ),
     )
     .await;
     let created: Value = serde_json::from_str(&body).expect("json");
@@ -339,7 +353,10 @@ async fn node_enabled_toggle_keeps_protocol_params() {
     assert_eq!(status, StatusCode::OK, "toggle failed: {body}");
     let toggled: Value = serde_json::from_str(&body).expect("json");
     assert_eq!(toggled["enabled"], json!(false));
-    assert_eq!(toggled["params"], node["params"], "params must be preserved");
+    assert_eq!(
+        toggled["params"], node["params"],
+        "params must be preserved"
+    );
 
     // A disabled node stops being published.
     let (status, _, _) = send(&harness, get_request(&format!("/s/{token}"), None)).await;
@@ -552,7 +569,10 @@ async fn passthrough_settings_round_trip() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let settings: Value = serde_json::from_str(&body).expect("json");
     assert_eq!(settings["disguise_passthrough"], true);
-    assert_eq!(settings["disguise_template_url"], "https://sample.example.com/");
+    assert_eq!(
+        settings["disguise_template_url"],
+        "https://sample.example.com/"
+    );
     assert_eq!(settings["disguise_template_ip"], "203.0.113.7");
     assert_eq!(settings["disguise_template_port"], 8443);
 
@@ -589,14 +609,22 @@ async fn subscription_host_hides_the_admin_area() {
     let harness = split_harness().await;
 
     // The admin prefix and API are unreachable from the subscription host.
-    for path in ["/subsc-admin", "/subsc-admin/login", "/subsc-admin/api/health", "/api/health"] {
+    for path in [
+        "/subsc-admin",
+        "/subsc-admin/login",
+        "/subsc-admin/api/health",
+        "/api/health",
+    ] {
         let (status, body, _) = send(
             &harness,
             host_request(Method::GET, path, "sub.example.com", None),
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND, "path {path}: {body}");
-        assert!(body.contains("404"), "path {path} should be disguised: {body}");
+        assert!(
+            body.contains("404"),
+            "path {path} should be disguised: {body}"
+        );
     }
 }
 
@@ -606,7 +634,12 @@ async fn admin_host_hides_the_subscription_paths() {
 
     let (status, body, _) = send(
         &harness,
-        host_request(Method::GET, "/link/unknown-token", "panel.example.com", None),
+        host_request(
+            Method::GET,
+            "/link/unknown-token",
+            "panel.example.com",
+            None,
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
@@ -619,7 +652,12 @@ async fn the_admin_prefix_serves_the_api_and_login() {
 
     let (status, body, _) = send(
         &harness,
-        host_request(Method::GET, "/subsc-admin/api/health", "panel.example.com", None),
+        host_request(
+            Method::GET,
+            "/subsc-admin/api/health",
+            "panel.example.com",
+            None,
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -628,7 +666,12 @@ async fn the_admin_prefix_serves_the_api_and_login() {
     // An unauthenticated admin call still answers 401 rather than the disguise.
     let (status, body, _) = send(
         &harness,
-        host_request(Method::GET, "/subsc-admin/api/auth/me", "panel.example.com", None),
+        host_request(
+            Method::GET,
+            "/subsc-admin/api/auth/me",
+            "panel.example.com",
+            None,
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
@@ -689,21 +732,18 @@ async fn the_pinned_subscription_prefix_is_used_in_links() {
     .await;
     let cookie = cookie.expect("session cookie");
 
-    let (status, body, _) = send(
-        &harness,
-        {
-            let mut request = host_request(
-                Method::POST,
-                "/subsc-admin/api/users",
-                "panel.example.com",
-                Some(json!({ "remark": "alice" })),
-            );
-            request
-                .headers_mut()
-                .insert(header::COOKIE, cookie.parse().expect("cookie"));
-            request
-        },
-    )
+    let (status, body, _) = send(&harness, {
+        let mut request = host_request(
+            Method::POST,
+            "/subsc-admin/api/users",
+            "panel.example.com",
+            Some(json!({ "remark": "alice" })),
+        );
+        request
+            .headers_mut()
+            .insert(header::COOKIE, cookie.parse().expect("cookie"));
+        request
+    })
     .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let created: Value = serde_json::from_str(&body).expect("json");
@@ -711,6 +751,75 @@ async fn the_pinned_subscription_prefix_is_used_in_links() {
     assert_eq!(
         created["subscription_path"],
         format!("/link/{}", created["token"].as_str().expect("token")),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn the_pinned_prefix_is_reported_as_locked() {
+    let harness = split_harness().await;
+
+    send(
+        &harness,
+        host_request(
+            Method::POST,
+            "/subsc-admin/api/auth/setup",
+            "panel.example.com",
+            Some(json!({ "username": "admin", "password": "a-very-long-password" })),
+        ),
+    )
+    .await;
+
+    let (_, _, cookie) = send(
+        &harness,
+        host_request(
+            Method::POST,
+            "/subsc-admin/api/auth/login",
+            "panel.example.com",
+            Some(json!({ "username": "admin", "password": "a-very-long-password" })),
+        ),
+    )
+    .await;
+    let cookie = cookie.expect("session cookie");
+
+    let (status, body, _) = send(&harness, {
+        let mut request = host_request(
+            Method::GET,
+            "/subsc-admin/api/settings",
+            "panel.example.com",
+            None,
+        );
+        request
+            .headers_mut()
+            .insert(header::COOKIE, cookie.parse().expect("cookie"));
+        request
+    })
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let settings: Value = serde_json::from_str(&body).expect("json");
+    // The UI locks the field when the prefix comes from the config file.
+    assert_eq!(settings["subscription_prefix_pinned"], true);
+    // And it shows the pinned value, never the stale database one.
+    let (_, body, _) = send(&harness, {
+        let mut request = host_request(
+            Method::POST,
+            "/subsc-admin/api/users",
+            "panel.example.com",
+            Some(json!({ "remark": "bob" })),
+        );
+        request
+            .headers_mut()
+            .insert(header::COOKIE, cookie.parse().expect("cookie"));
+        request
+    })
+    .await;
+    let created: Value = serde_json::from_str(&body).expect("json");
+    assert!(
+        created["subscription_path"]
+            .as_str()
+            .expect("path")
+            .starts_with("/link/"),
         "{body}"
     );
 }
@@ -776,7 +885,12 @@ async fn the_subscription_path_is_visible_and_editable() {
 
     let (_, body, _) = send(
         &harness,
-        json_request(Method::POST, "/api/users", json!({ "remark": "alice" }), Some(&cookie)),
+        json_request(
+            Method::POST,
+            "/api/users",
+            json!({ "remark": "alice" }),
+            Some(&cookie),
+        ),
     )
     .await;
     let created: Value = serde_json::from_str(&body).expect("json");
@@ -864,7 +978,10 @@ async fn subscription_paths_reject_url_syntax() {
         )
         .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {body}");
-        assert!(body.contains("token") || body.contains("订阅路径"), "{bad}: {body}");
+        assert!(
+            body.contains("token") || body.contains("订阅路径"),
+            "{bad}: {body}"
+        );
     }
 }
 
@@ -916,7 +1033,10 @@ async fn node_render_endpoint_supports_every_core() {
     for core in ["uri", "sing-box", "mihomo", "xray", "hysteria2"] {
         let (status, body, _) = send(
             &harness,
-            get_request(&format!("/api/nodes/{node_id}/render?core={core}"), Some(&cookie)),
+            get_request(
+                &format!("/api/nodes/{node_id}/render?core={core}"),
+                Some(&cookie),
+            ),
         )
         .await;
 
@@ -1009,7 +1129,10 @@ async fn login_cookie_persists_and_round_trips() {
         .expect("login cookie");
     let lowered = issued.to_ascii_lowercase();
     assert!(lowered.contains("max-age="), "no Max-Age: {issued}");
-    assert!(!lowered.contains("max-age=0"), "cookie expires at once: {issued}");
+    assert!(
+        !lowered.contains("max-age=0"),
+        "cookie expires at once: {issued}"
+    );
 
     // The cookie must actually authenticate on the next request.
     let cookie = cookie.expect("session cookie");
@@ -1126,7 +1249,10 @@ async fn internal_errors_hide_the_cause() {
 
     // A 404 for a missing row is a public message; an unhandled failure is not.
     let (status, body, _) = send(&harness, get_request("/api/nodes/999999", Some(&cookie))).await;
-    assert!(status == StatusCode::NOT_FOUND || status == StatusCode::OK, "{status}");
+    assert!(
+        status == StatusCode::NOT_FOUND || status == StatusCode::OK,
+        "{status}"
+    );
     assert!(!body.contains("sea_orm"), "{body}");
 }
 
@@ -1185,7 +1311,10 @@ async fn xhttp_extra_is_accepted_in_snake_case() {
 
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let created: Value = serde_json::from_str(&body).expect("json body");
-    assert_eq!(created["params"]["transport"]["extra"]["x_padding_bytes"], "100-1000");
+    assert_eq!(
+        created["params"]["transport"]["extra"]["x_padding_bytes"],
+        "100-1000"
+    );
 }
 
 #[tokio::test]
@@ -1233,11 +1362,9 @@ async fn xhttp_extra_is_exported_with_xray_names() {
     assert_eq!(status, StatusCode::OK, "{body}");
 
     let document: Value = serde_json::from_str(&body).expect("json body");
-    let text = document["content"].as_str().unwrap_or_else(|| {
-        document
-            .as_str()
-            .expect("render content is a string")
-    });
+    let text = document["content"]
+        .as_str()
+        .unwrap_or_else(|| document.as_str().expect("render content is a string"));
     let parsed: Value = serde_json::from_str(text).expect("config json");
 
     let settings = &parsed["outbounds"][0]["streamSettings"]["xhttpSettings"];
@@ -1311,7 +1438,10 @@ async fn each_node_keeps_its_own_credentials() {
         let document: Value = serde_json::from_str(&body).expect("json");
         let link = document["content"].as_str().expect("content").to_owned();
 
-        assert!(link.contains(uuid), "node {node_id} must use {uuid}: {link}");
+        assert!(
+            link.contains(uuid),
+            "node {node_id} must use {uuid}: {link}"
+        );
         assert!(
             !link.contains(&other_uuid(uuid)),
             "node {node_id} leaked the other node's uuid: {link}"
@@ -1372,7 +1502,10 @@ async fn a_node_without_credentials_is_not_published() {
     // Rendering for the user must fail: there is no account on that node.
     let (status, body, _) = send(
         &harness,
-        get_request(&format!("/api/render?core=uri&user_id={user_id}"), Some(&cookie)),
+        get_request(
+            &format!("/api/render?core=uri&user_id={user_id}"),
+            Some(&cookie),
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
@@ -1492,7 +1625,10 @@ async fn server_config_renders_a_runnable_inbound() {
 
     let (status, body, _) = send(
         &harness,
-        get_request(&format!("/api/nodes/{node_id}/server-config"), Some(&cookie)),
+        get_request(
+            &format!("/api/nodes/{node_id}/server-config"),
+            Some(&cookie),
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1508,7 +1644,9 @@ async fn server_config_renders_a_runnable_inbound() {
     assert_eq!(inbound["protocol"], "vless");
     assert_eq!(inbound["settings"]["decryption"], "none");
     // The account from `node_credentials` must appear as a server client.
-    let client_id = inbound["settings"]["clients"][0]["id"].as_str().expect("id");
+    let client_id = inbound["settings"]["clients"][0]["id"]
+        .as_str()
+        .expect("id");
     assert_eq!(client_id.len(), 36, "{body}");
     assert_eq!(
         inbound["streamSettings"]["tlsSettings"]["certificates"][0]["certificateFile"],
@@ -1563,11 +1701,17 @@ async fn server_config_keeps_the_reality_private_key_off_the_wire_to_clients() {
     // The server document carries the private key.
     let (_, body, _) = send(
         &harness,
-        get_request(&format!("/api/nodes/{node_id}/server-config"), Some(&cookie)),
+        get_request(
+            &format!("/api/nodes/{node_id}/server-config"),
+            Some(&cookie),
+        ),
     )
     .await;
     assert!(body.contains("privateKey"), "{body}");
-    assert!(!body.contains(&pair.public_key), "server doc leaked public key");
+    assert!(
+        !body.contains(&pair.public_key),
+        "server doc leaked public key"
+    );
 
     // The client document must never contain the private key.
     let (status, body, _) = send(
@@ -1579,7 +1723,10 @@ async fn server_config_keeps_the_reality_private_key_off_the_wire_to_clients() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert!(!body.contains(&pair.private_key), "client doc leaked private key");
+    assert!(
+        !body.contains(&pair.private_key),
+        "client doc leaked private key"
+    );
 }
 
 #[tokio::test]
@@ -1612,7 +1759,10 @@ async fn server_config_is_optional() {
 
     let (status, body, _) = send(
         &harness,
-        get_request(&format!("/api/nodes/{node_id}/server-config"), Some(&cookie)),
+        get_request(
+            &format!("/api/nodes/{node_id}/server-config"),
+            Some(&cookie),
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
@@ -1722,7 +1872,13 @@ async fn disguise_covers_common_probe_paths() {
     let harness = harness().await;
     setup(&harness).await;
 
-    for path in ["/.env", "/.git/config", "/admin", "/phpmyadmin", "/backup.zip"] {
+    for path in [
+        "/.env",
+        "/.git/config",
+        "/admin",
+        "/phpmyadmin",
+        "/backup.zip",
+    ] {
         let (status, body, _) = send(&harness, get_request(path, None)).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "path {path}");
         assert!(body.contains("404"), "path {path}");
@@ -1747,6 +1903,10 @@ async fn user_deletion_cleans_up_access_rows() {
     .await
     .expect("user");
 
-    assert!(db::users::delete(&state.db, created.user.id).await.expect("delete"));
+    assert!(
+        db::users::delete(&state.db, created.user.id)
+            .await
+            .expect("delete")
+    );
     assert!(db::users::list(&state.db).await.expect("list").is_empty());
 }

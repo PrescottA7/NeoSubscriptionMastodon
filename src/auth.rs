@@ -6,13 +6,15 @@
 // in the project root for the full text.
 
 use axum::{
-    extract::FromRequestParts,
-    http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
     Json,
+    extract::FromRequestParts,
+    http::{HeaderMap, StatusCode, header},
+    response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Duration, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, Set,
+};
 use serde::Serialize;
 
 use crate::db::{admins::AdminSummary, entities::sessions};
@@ -72,7 +74,10 @@ impl SessionController {
     /// Returns `true` when the token maps to a live session.
     pub async fn resolve(&self, token: &str) -> Result<bool, DbErr> {
         let token_hash = hash_secret(token);
-        let Some(session) = sessions::Entity::find_by_id(token_hash).one(&self.db).await? else {
+        let Some(session) = sessions::Entity::find_by_id(token_hash)
+            .one(&self.db)
+            .await?
+        else {
             return Ok(false);
         };
 

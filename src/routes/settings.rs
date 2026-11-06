@@ -6,9 +6,9 @@
 // in the project root for the full text.
 
 use axum::{
+    Json, Router,
     extract::State,
     routing::{get, put},
-    Json, Router,
 };
 use serde::Serialize;
 
@@ -23,6 +23,9 @@ use crate::validate::Validator;
 struct SettingsResponse {
     #[serde(flatten)]
     settings: AppSettings,
+    /// True when `config.yml` pins the prefix, which makes the stored value
+    /// read-only in the UI.
+    subscription_prefix_pinned: bool,
     disguise_page: String,
     available_cores: Vec<&'static str>,
 }
@@ -36,9 +39,10 @@ pub fn routes(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/api/settings", get(get_settings).put(update_settings))
         .route("/api/settings/disguise-page", put(update_disguise_page))
-        .route_layer(axum::middleware::from_extractor_with_state::<RequireAuth, AppState>(
-            state.clone(),
-        ))
+        .route_layer(axum::middleware::from_extractor_with_state::<
+            RequireAuth,
+            AppState,
+        >(state.clone()))
 }
 
 async fn get_settings(State(state): State<AppState>) -> RequestResult<Json<SettingsResponse>> {
@@ -47,6 +51,7 @@ async fn get_settings(State(state): State<AppState>) -> RequestResult<Json<Setti
 
     Ok(Json(SettingsResponse {
         settings,
+        subscription_prefix_pinned: state.config.pinned_subscription_prefix().is_some(),
         disguise_page,
         available_cores: crate::render::supported_cores()
             .iter()
@@ -70,6 +75,7 @@ async fn update_settings(
     // without a second read.
     Ok(Json(SettingsResponse {
         settings: updated,
+        subscription_prefix_pinned: state.config.pinned_subscription_prefix().is_some(),
         disguise_page: state.disguise().page().to_owned(),
         available_cores: crate::render::supported_cores()
             .iter()
@@ -146,8 +152,9 @@ fn validate_settings(payload: &SettingsUpdate) -> Result<(), RequestError> {
 
     if let Some(ip) = payload.disguise_template_ip.as_deref() {
         let trimmed = ip.trim();
-        if !trimmed.is_empty() && trimmed.parse::<std::net::IpAddr>().is_err() {
-            validator.push("disguise_template_ip", "服务器 IP 必须是合法地址");
+        if !trimmed.is_empty() {
+            // The override may be an IP or a hostname such as `host.docker.internal`.
+            validator.host("disguise_template_ip", trimmed);
         }
     }
 
@@ -179,6 +186,7 @@ async fn update_disguise_page(
     let settings = state.settings().await?;
     Ok(Json(SettingsResponse {
         settings,
+        subscription_prefix_pinned: state.config.pinned_subscription_prefix().is_some(),
         disguise_page: state.disguise().page().to_owned(),
         available_cores: crate::render::supported_cores()
             .iter()
@@ -265,10 +273,25 @@ mod tests {
     }
 
     #[test]
-    fn a_bad_override_ip_is_rejected() {
-        let error =
-            validate_settings(&passthrough("https://sample.example.com/", "not-an-ip", true))
-                .expect_err("should fail");
+    fn a_bad_override_address_is_rejected() {
+        let error = validate_settings(&passthrough(
+            "https://sample.example.com/",
+            "https://host.docker.internal",
+            true,
+        ))
+        .expect_err("should fail");
         assert_eq!(error.fields()[0].field, "disguise_template_ip");
+    }
+
+    #[test]
+    fn an_override_hostname_is_accepted() {
+        assert!(
+            validate_settings(&passthrough(
+                "https://sample.example.com/",
+                "host.docker.internal",
+                true
+            ))
+            .is_ok()
+        );
     }
 }

@@ -183,6 +183,11 @@ export default function UsersPage() {
     return `${window.location.origin}${user.subscription_path}`;
   }
 
+  /** Name shown for a user row, or for the user a link was generated for. */
+  function userLabel(user: { id: number; remark: string }) {
+    return user.remark || `#${user.id}`;
+  }
+
   /** `linkPrefix` is everything before the slug, for the inline editor. */
   function slugPrefix(user: User) {
     return user.subscription_path.slice(
@@ -226,8 +231,7 @@ export default function UsersPage() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>用户名</TableCell>
-                <TableCell>备注</TableCell>
+                <TableCell>用户</TableCell>
                 <TableCell>订阅链接</TableCell>
                 <TableCell>访问次数</TableCell>
                 <TableCell>状态</TableCell>
@@ -238,15 +242,14 @@ export default function UsersPage() {
               {loading && <UsersLoadingRow />}
               {!loading && users.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 4, color: "text.secondary" }}>
+                  <TableCell colSpan={5} align="center" sx={{ py: 4, color: "text.secondary" }}>
                     还没有用户，点击「新建用户」创建第一个订阅者。
                   </TableCell>
                 </TableRow>
               )}
               {users.map((user) => (
                 <TableRow key={user.id} hover>
-                  <TableCell>{user.remark || `#${user.id}`}</TableCell>
-                  <TableCell>{user.remark || "—"}</TableCell>
+                  <TableCell>{userLabel(user)}</TableCell>
                   <TableCell>
                     {editing?.user.id === user.id ? (
                       <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
@@ -377,7 +380,9 @@ export default function UsersPage() {
       </Dialog>
 
       <Dialog open={Boolean(provisioned)} onClose={() => setProvisioned(null)} fullWidth maxWidth="sm">
-        <DialogTitle>订阅链接</DialogTitle>
+        <DialogTitle>
+          {provisioned ? `订阅链接 · ${userLabel(provisioned.user)}` : "订阅链接"}
+        </DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
             <Box>

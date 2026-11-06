@@ -233,8 +233,8 @@ export function validateSettingsForm(form: {
   }
 
   const ip = (form.disguise_template_ip ?? "").trim();
-  if (ip.length > 0 && !isIpAddress(ip)) {
-    errors.disguise_template_ip = "服务器 IP 必须是合法地址";
+  if (ip.length > 0) {
+    checkHost(errors, "disguise_template_ip", ip);
   }
 
   const port = (form.disguise_template_port ?? "").trim();
@@ -246,14 +246,4 @@ export function validateSettingsForm(form: {
   }
 
   return errors;
-}
-
-/** Accepts IPv4 and bracketed or bare IPv6 literals. */
-function isIpAddress(value: string): boolean {
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-  const match = ipv4.exec(value);
-  if (match) {
-    return match.slice(1).every((part) => Number(part) <= 255);
-  }
-  return value.includes(":") && /^[0-9a-fA-F:.]+$/.test(value);
 }

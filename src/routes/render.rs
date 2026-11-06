@@ -6,11 +6,11 @@
 // in the project root for the full text.
 
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +18,7 @@ use crate::auth::RequireAuth;
 use crate::db::nodes;
 use crate::db::users;
 use crate::error::{RequestError, RequestResult};
-use crate::render::{context::RenderUser, render_with, Core, RenderContext};
+use crate::render::{Core, RenderContext, context::RenderUser, render_with};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -46,9 +46,10 @@ pub fn routes(state: &AppState) -> Router<AppState> {
         .route("/api/nodes/{id}/render", get(render_node))
         .route("/api/nodes/{id}/server-config", get(render_server))
         .route("/api/render", get(render_all))
-        .route_layer(axum::middleware::from_extractor_with_state::<RequireAuth, AppState>(
-            state.clone(),
-        ))
+        .route_layer(axum::middleware::from_extractor_with_state::<
+            RequireAuth,
+            AppState,
+        >(state.clone()))
 }
 
 /// Renders the node's own configuration, ready to be started by the proxy server.
@@ -88,22 +89,19 @@ async fn render_server(
     }
 
     // Only accounts that are actually enabled become server clients.
-    let accounts: Vec<crate::render::server::ServerAccount> = crate::db::credentials::list_for_node(
-        &state.db,
-        &state.key,
-        id,
-    )
-    .await?
-    .into_iter()
-    .filter(|credential| credential.enabled)
-    .map(|credential| {
-        crate::render::server::ServerAccount::new(
-            credential.email,
-            credential.uuid,
-            credential.password,
-        )
-    })
-    .collect();
+    let accounts: Vec<crate::render::server::ServerAccount> =
+        crate::db::credentials::list_for_node(&state.db, &state.key, id)
+            .await?
+            .into_iter()
+            .filter(|credential| credential.enabled)
+            .map(|credential| {
+                crate::render::server::ServerAccount::new(
+                    credential.email,
+                    credential.uuid,
+                    credential.password,
+                )
+            })
+            .collect();
 
     let content = crate::render::server::render(server_config, &accounts, &node.name, core)
         .map_err(RequestError::internal)?;
@@ -150,9 +148,10 @@ fn document_response_raw(
     }
 
     let mut response = Response::new(axum::body::Body::from(content));
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
@@ -174,8 +173,11 @@ async fn render_node(
         .ok_or_else(|| RequestError::not_found(format!("节点 {id} 不存在")))?;
 
     let (user, credentials) = resolve_credentials(&state, node.id, query.user_id).await?;
-    let context = RenderContext::new(user, credentials, node.params)
-        .with_node(node.server.clone(), node.port, node.name.clone());
+    let context = RenderContext::new(user, credentials, node.params).with_node(
+        node.server.clone(),
+        node.port,
+        node.name.clone(),
+    );
 
     let content = if query.full.unwrap_or(1) == 0 {
         render_with(core, &context).map_err(|error| RequestError::bad_request(error.to_string()))?
@@ -255,7 +257,8 @@ async fn render_all(
 }
 
 /// Builds either an inline or an attachment response.
-fn document_response(core: Core, name: &str, content: String, download: bool) -> Response {    if !download {
+fn document_response(core: Core, name: &str, content: String, download: bool) -> Response {
+    if !download {
         return Json(RenderedDocument {
             core: core.as_str(),
             content_type: core.content_type(),
@@ -267,9 +270,10 @@ fn document_response(core: Core, name: &str, content: String, download: bool) ->
 
     let filename = format!("{}-{}.{}", name_slug(name), core.as_str(), core.extension());
     let mut response = Response::new(axum::body::Body::from(content));
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
@@ -315,10 +319,7 @@ async fn resolve_credentials(
         crate::db::credentials::resolved_for_pair(&state.db, &state.key, node_id, summary.id)
             .await?
             .ok_or_else(|| {
-                RequestError::not_found(format!(
-                    "用户「{}」在该节点上还没有凭据",
-                    summary.remark
-                ))
+                RequestError::not_found(format!("用户「{}」在该节点上还没有凭据", summary.remark))
             })?;
 
     Ok((

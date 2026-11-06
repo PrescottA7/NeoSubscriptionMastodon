@@ -11,11 +11,11 @@ import { createTheme, type Theme } from "@mui/material";
 import type { PaletteMode } from "@mui/material";
 
 /**
- * Monochrome design language.
+ * Neutral surfaces plus one configurable accent.
  *
- * The UI deliberately avoids accent hues: hierarchy comes from weight, spacing,
- * and surface contrast. A single neutral scale serves both modes so a component
- * looks the same whether it is rendered light or dark.
+ * Hierarchy still comes from weight, spacing, and surface contrast; the accent
+ * only marks interactive emphasis (primary buttons, focus rings, selection) so
+ * the layout keeps its calm, developer-facing look.
  */
 const NEUTRALS = {
   light: {
@@ -45,9 +45,71 @@ const NEUTRALS = {
 export const MONO_FONT =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
 
-export function buildTheme(mode: PaletteMode): Theme {
+/** Accent used when none is configured: the familiar Windows/Microsoft blue. */
+export const DEFAULT_ACCENT = "#0078d4";
+
+/** Preset accents offered in the settings screen. */
+export const ACCENT_PRESETS: { label: string; value: string }[] = [
+  { label: "微软蓝", value: DEFAULT_ACCENT },
+  { label: "天青", value: "#0ea5e9" },
+  { label: "青绿", value: "#0d9488" },
+  { label: "翠绿", value: "#16a34a" },
+  { label: "琥珀", value: "#d97706" },
+  { label: "珊瑚", value: "#e11d48" },
+  { label: "紫罗兰", value: "#7c3aed" },
+  { label: "石墨", value: "#09090b" },
+];
+
+const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
+
+/** Accepts `#rrggbb` (and `#rgb`, expanded) so stored values stay canonical. */
+export function normalizeAccent(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  if (HEX_COLOUR.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
+    const [r, g, b] = trimmed.slice(1).toLowerCase().split("");
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return null;
+}
+
+/** Relative luminance per WCAG 2.x, used to pick readable on-accent text. */
+function luminance(hex: string): number {
+  const channels = [1, 3, 5].map((offset) => {
+    const value = parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+/** Mixes two `#rrggbb` colours; `weight` is how much of `hex` to keep. */
+function mix(hex: string, other: string, weight: number): string {
+  const channels = (value: string) =>
+    [1, 3, 5].map((offset) => parseInt(value.slice(offset, offset + 2), 16));
+  const from = channels(hex);
+  const to = channels(other);
+  const blended = from.map((channel, index) =>
+    Math.round(channel * weight + to[index] * (1 - weight))
+      .toString(16)
+      .padStart(2, "0"),
+  );
+  return `#${blended.join("")}`;
+}
+
+export function buildTheme(mode: PaletteMode, accent: string = DEFAULT_ACCENT): Theme {
   const c = NEUTRALS[mode];
   const isDark = mode === "dark";
+  const spot = normalizeAccent(accent) ?? DEFAULT_ACCENT;
+  // Dark mode lifts the accent so it keeps contrast against near-black surfaces.
+  const accentMain = isDark ? mix(spot, "#ffffff", 0.88) : spot;
+  const accentHover = isDark ? mix(spot, "#ffffff", 0.75) : mix(spot, "#000000", 0.85);
+  const accentContrast = luminance(accentMain) > 0.5 ? "#09090b" : "#ffffff";
+  const accentRgb = [1, 3, 5]
+    .map((offset) => parseInt(accentMain.slice(offset, offset + 2), 16))
+    .join(",");
+  const accentWash = (alpha: number) => `rgba(${accentRgb},${alpha})`;
 
   return createTheme({
     palette: {
@@ -59,14 +121,14 @@ export function buildTheme(mode: PaletteMode): Theme {
         secondary: c.textMuted,
         disabled: c.textFaint,
       },
-      // Everything "accent" collapses onto the text colour so the UI stays
-      // monochrome; contrast carries the emphasis instead of hue.
-      primary: { main: c.text, contrastText: c.inverse },
+      // Semantic state colours keep their hue; `primary` carries the configured
+      // accent so interactive emphasis follows the operator's choice.
+      primary: { main: accentMain, dark: accentHover, contrastText: accentContrast },
       secondary: { main: c.textMuted, contrastText: c.inverse },
-      success: { main: c.text, contrastText: c.inverse },
-      error: { main: c.text, contrastText: c.inverse },
-      warning: { main: c.text, contrastText: c.inverse },
-      info: { main: c.text, contrastText: c.inverse },
+      success: { main: isDark ? "#4ade80" : "#15803d" },
+      error: { main: isDark ? "#f87171" : "#b91c1c" },
+      warning: { main: isDark ? "#fbbf24" : "#b45309" },
+      info: { main: isDark ? "#60a5fa" : "#1d4ed8" },
       action: {
         hover: isDark ? "rgba(250,250,250,0.06)" : "rgba(9,9,11,0.04)",
         selected: isDark ? "rgba(250,250,250,0.10)" : "rgba(9,9,11,0.06)",
@@ -99,7 +161,7 @@ export function buildTheme(mode: PaletteMode): Theme {
             WebkitFontSmoothing: "antialiased",
           },
           "*::selection": {
-            backgroundColor: isDark ? "rgba(250,250,250,0.20)" : "rgba(9,9,11,0.12)",
+            backgroundColor: accentWash(isDark ? 0.32 : 0.2),
           },
           code: { fontFamily: MONO_FONT, fontSize: "0.85em" },
         },
@@ -127,15 +189,15 @@ export function buildTheme(mode: PaletteMode): Theme {
         styleOverrides: {
           root: { borderRadius: 6, paddingInline: 14, minHeight: 34 },
           containedPrimary: {
-            backgroundColor: c.text,
-            color: c.inverse,
-            "&:hover": { backgroundColor: isDark ? "#e4e4e7" : "#27272a" },
+            backgroundColor: accentMain,
+            color: accentContrast,
+            "&:hover": { backgroundColor: accentHover },
           },
           outlined: {
             borderColor: c.borderStrong,
             "&:hover": {
-              borderColor: c.text,
-              backgroundColor: isDark ? "rgba(250,250,250,0.06)" : "rgba(9,9,11,0.04)",
+              borderColor: accentMain,
+              backgroundColor: accentWash(0.06),
             },
           },
         },
@@ -147,10 +209,10 @@ export function buildTheme(mode: PaletteMode): Theme {
             "& fieldset": { borderColor: c.border },
             "&:hover fieldset": { borderColor: c.borderStrong },
             "&.Mui-focused fieldset": {
-              borderColor: c.text,
+              borderColor: accentMain,
               borderWidth: 1,
-              // A 1px ring keeps focus visible without introducing colour.
-              boxShadow: `0 0 0 3px ${isDark ? "rgba(250,250,250,0.10)" : "rgba(9,9,11,0.07)"}`,
+              // A 1px ring keeps focus visible; the accent makes it findable.
+              boxShadow: `0 0 0 3px ${accentWash(0.18)}`,
             },
           },
           input: { fontSize: "0.8125rem" },
@@ -218,7 +280,8 @@ export function buildTheme(mode: PaletteMode): Theme {
             borderRadius: 6,
             fontSize: "0.8125rem",
           },
-          icon: { color: c.textMuted },
+          // Alert colours are owned by the variant itself, which lets the
+          // severity tint reach the icon and background instead of a flat grey.
         },
       },
       MuiDialog: {
@@ -229,11 +292,46 @@ export function buildTheme(mode: PaletteMode): Theme {
       MuiTooltip: {
         styleOverrides: {
           tooltip: {
-            backgroundColor: c.text,
+            backgroundColor: isDark ? c.borderStrong : c.text,
             color: c.inverse,
             fontSize: "0.6875rem",
             borderRadius: 4,
           },
+        },
+      },
+      MuiLink: {
+        styleOverrides: {
+          root: { color: accentMain },
+        },
+      },
+      MuiCheckbox: {
+        styleOverrides: {
+          root: { color: c.borderStrong, "&.Mui-checked": { color: accentMain } },
+        },
+      },
+      MuiRadio: {
+        styleOverrides: {
+          root: { color: c.borderStrong, "&.Mui-checked": { color: accentMain } },
+        },
+      },
+      MuiSwitch: {
+        styleOverrides: {
+          root: {
+            "& .MuiSwitch-switchBase.Mui-checked": { color: accentMain },
+            "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+              backgroundColor: accentMain,
+            },
+          },
+        },
+      },
+      MuiTabs: {
+        styleOverrides: {
+          indicator: { backgroundColor: accentMain },
+        },
+      },
+      MuiTab: {
+        styleOverrides: {
+          root: { "&.Mui-selected": { color: accentMain } },
         },
       },
     },

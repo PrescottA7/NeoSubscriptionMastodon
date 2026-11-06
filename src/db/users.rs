@@ -97,10 +97,7 @@ pub async fn get(conn: &DatabaseConnection, id: i64) -> Result<Option<UserSummar
 }
 
 /// Resolves a subscription slug to its user.
-pub async fn find_by_token(
-    conn: &DatabaseConnection,
-    token: &str,
-) -> Result<Option<User>, DbErr> {
+pub async fn find_by_token(conn: &DatabaseConnection, token: &str) -> Result<Option<User>, DbErr> {
     users::Entity::find()
         .filter(users::Column::Token.eq(token))
         .one(conn)
@@ -246,13 +243,19 @@ impl std::fmt::Display for SlugError {
 
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> Result<bool, DbErr> {
     super::credentials::delete_for_user(conn, id).await?;
-    let changed = users::Entity::delete_by_id(id).exec(conn).await?.rows_affected;
+    let changed = users::Entity::delete_by_id(id)
+        .exec(conn)
+        .await?
+        .rows_affected;
     Ok(changed > 0)
 }
 
 pub async fn count(conn: &DatabaseConnection) -> Result<i64, DbErr> {
     use sea_orm::PaginatorTrait;
-    users::Entity::find().count(conn).await.map(|count| count as i64)
+    users::Entity::find()
+        .count(conn)
+        .await
+        .map(|count| count as i64)
 }
 
 pub async fn count_enabled(conn: &DatabaseConnection) -> Result<i64, DbErr> {
@@ -286,6 +289,9 @@ mod tests {
     fn a_generated_slug_is_url_safe() {
         let slug = random_secret();
         assert!(!slug.is_empty());
-        assert!(slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert!(
+            slug.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        );
     }
 }

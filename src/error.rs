@@ -7,9 +7,9 @@
 
 use anyhow::anyhow;
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -246,8 +246,7 @@ mod tests {
 
     #[tokio::test]
     async fn internal_errors_do_not_leak_the_cause() {
-        let error: RequestError =
-            anyhow::anyhow!("connection to /var/lib/secret.db failed").into();
+        let error: RequestError = anyhow::anyhow!("connection to /var/lib/secret.db failed").into();
         let (status, body) = body_of(error.into_response()).await;
 
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);

@@ -401,8 +401,11 @@ export const CredentialInputSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
+/// A user plus the link it resolves to. The embedded `user` is a plain row from
+/// `GET /api/users` *without* `subscription_path`; the path lives on the outer
+/// object together with the token and the display URL.
 export const ProvisionedUserSchema = z.object({
-  user: UserSchema,
+  user: UserSchema.omit({ subscription_path: true }),
   token: z.string(),
   subscription_path: z.string(),
   subscription_url: z.string(),
@@ -435,6 +438,8 @@ export const ProtocolDescriptorSchema = z.object({
 
 export const SettingsSchema = z.object({
   subscription_prefix: z.string(),
+  /** True when `config.yml` pins the prefix, making the stored value read-only. */
+  subscription_prefix_pinned: z.boolean().default(false),
   default_target: z.string(),
   failure_delay_ms: z.number(),
   site_name: z.string(),

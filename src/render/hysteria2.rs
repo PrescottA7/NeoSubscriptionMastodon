@@ -12,7 +12,7 @@
 //!
 //! Reference: <https://v2.hysteria.network/docs/advanced/Full-Client-Config/>
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::protocol::{Hysteria2Config, ObfsType, ProxyKind};
 
@@ -44,7 +44,10 @@ pub fn render_collection(contexts: &[RenderContext]) -> anyhow::Result<String> {
 
     match hysteria_nodes.first() {
         Some((context, config)) => {
-            root.insert("server".to_owned(), Value::String(server_address(context, config)));
+            root.insert(
+                "server".to_owned(),
+                Value::String(server_address(context, config)),
+            );
             root.insert(
                 "auth".to_owned(),
                 Value::String(context.credentials.password.clone()),
@@ -130,12 +133,7 @@ fn tls_section(context: &RenderContext, config: &Hysteria2Config) -> Map<String,
 
     tls.insert(
         "sni".to_owned(),
-        Value::String(
-            config
-                .tls
-                .effective_server_name(&context.server)
-                .to_owned(),
-        ),
+        Value::String(config.tls.effective_server_name(&context.server).to_owned()),
     );
 
     if config.tls.insecure {
@@ -170,7 +168,10 @@ fn transport_section(config: &Hysteria2Config) -> Map<String, Value> {
     let mut udp = Map::new();
     match (
         config.hop_interval_value(),
-        config.hop_interval_max.as_deref().filter(|value| !value.is_empty()),
+        config
+            .hop_interval_max
+            .as_deref()
+            .filter(|value| !value.is_empty()),
     ) {
         (Some(min), Some(max)) => {
             udp.insert("minHopInterval".to_owned(), Value::String(min.to_owned()));
@@ -180,10 +181,7 @@ fn transport_section(config: &Hysteria2Config) -> Map<String, Value> {
             udp.insert("hopInterval".to_owned(), Value::String(interval.to_owned()));
         }
         _ => {
-            udp.insert(
-                "hopInterval".to_owned(),
-                Value::String("30s".to_owned()),
-            );
+            udp.insert("hopInterval".to_owned(), Value::String("30s".to_owned()));
         }
     }
 
@@ -262,11 +260,7 @@ mod tests {
                 id: 1,
                 remark: String::new(),
             },
-            RenderCredentials::new(
-                "uuid",
-                "hy2-pw",
-                "alice@tokyo",
-            ),
+            RenderCredentials::new("uuid", "hy2-pw", "alice@tokyo"),
             params,
         )
         .with_node("example.com", 443, "Tokyo")
@@ -274,8 +268,8 @@ mod tests {
 
     #[test]
     fn minimal_config_has_server_auth_and_tls() {
-        let rendered = render(&context(ProxyKind::Hysteria2(Hysteria2Config::default())))
-            .expect("render");
+        let rendered =
+            render(&context(ProxyKind::Hysteria2(Hysteria2Config::default()))).expect("render");
         let value: Value = serde_yaml::from_str(&rendered).expect("valid yaml");
 
         assert_eq!(value["server"], "example.com:443");

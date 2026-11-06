@@ -31,11 +31,7 @@ pub fn render(context: &RenderContext) -> String {
 
 /// Renders a whole subscription as newline-separated links.
 pub fn render_collection(contexts: &[RenderContext]) -> String {
-    contexts
-        .iter()
-        .map(render)
-        .collect::<Vec<_>>()
-        .join("\r\n")
+    contexts.iter().map(render).collect::<Vec<_>>().join("\r\n")
 }
 
 fn vless(context: &RenderContext, config: &VlessConfig) -> String {
@@ -81,7 +77,11 @@ fn trojan(context: &RenderContext, config: &TrojanConfig) -> String {
 
     build_uri(
         "trojan",
-        &format!("{}@{}", url_encode(&context.credentials.password), format_host(&context.server)),
+        &format!(
+            "{}@{}",
+            url_encode(&context.credentials.password),
+            format_host(&context.server)
+        ),
         context.port,
         &query,
         &context.label(),
@@ -123,7 +123,11 @@ fn hysteria2(context: &RenderContext, config: &Hysteria2Config) -> String {
 
     build_uri(
         "hysteria2",
-        &format!("{}@{}", url_encode(&context.credentials.password), format_host(&context.server)),
+        &format!(
+            "{}@{}",
+            url_encode(&context.credentials.password),
+            format_host(&context.server)
+        ),
         context.port,
         &query,
         &context.label(),
@@ -132,7 +136,10 @@ fn hysteria2(context: &RenderContext, config: &Hysteria2Config) -> String {
 
 fn tuic(context: &RenderContext, config: &TuicConfig) -> String {
     let mut query: Vec<(&str, String)> = vec![
-        ("congestion_control", config.congestion_control.as_str().to_owned()),
+        (
+            "congestion_control",
+            config.congestion_control.as_str().to_owned(),
+        ),
         ("udp_relay_mode", config.udp_relay_mode.as_str().to_owned()),
     ];
 
@@ -166,15 +173,21 @@ fn tuic(context: &RenderContext, config: &TuicConfig) -> String {
 }
 
 fn anytls(context: &RenderContext, config: &AnytlsConfig) -> String {
-    let mut query: Vec<(&str, String)> = vec![
-        ("security", "tls".to_owned()),
-        ("type", "tcp".to_owned()),
-    ];
+    let mut query: Vec<(&str, String)> =
+        vec![("security", "tls".to_owned()), ("type", "tcp".to_owned())];
 
-    if let Some(value) = config.idle_session_check_interval.as_deref().filter(|v| !v.is_empty()) {
+    if let Some(value) = config
+        .idle_session_check_interval
+        .as_deref()
+        .filter(|v| !v.is_empty())
+    {
         query.push(("idle_session_check_interval", value.to_owned()));
     }
-    if let Some(value) = config.idle_session_timeout.as_deref().filter(|v| !v.is_empty()) {
+    if let Some(value) = config
+        .idle_session_timeout
+        .as_deref()
+        .filter(|v| !v.is_empty())
+    {
         query.push(("idle_session_timeout", value.to_owned()));
     }
     if let Some(value) = config.min_idle_session {
@@ -190,7 +203,11 @@ fn anytls(context: &RenderContext, config: &AnytlsConfig) -> String {
 
     build_uri(
         "anytls",
-        &format!("{}@{}", url_encode(&context.credentials.password), format_host(&context.server)),
+        &format!(
+            "{}@{}",
+            url_encode(&context.credentials.password),
+            format_host(&context.server)
+        ),
         context.port,
         &query,
         &context.label(),
@@ -284,15 +301,16 @@ fn push_tls(
 }
 
 /// TLS fields common to every scheme.
-fn push_tls_common(query: &mut Vec<(&str, String)>, tls: &crate::protocol::TlsConfig, server: &str) {
+fn push_tls_common(
+    query: &mut Vec<(&str, String)>,
+    tls: &crate::protocol::TlsConfig,
+    server: &str,
+) {
     if !tls.is_active() {
         return;
     }
 
-    query.push((
-        "sni",
-        tls.effective_server_name(server).to_owned(),
-    ));
+    query.push(("sni", tls.effective_server_name(server).to_owned()));
 
     if let Some(alpn) = tls.alpn_joined() {
         query.push(("alpn", alpn));

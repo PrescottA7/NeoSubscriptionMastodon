@@ -49,8 +49,18 @@ pub fn url_encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.as_bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~'
-            | b'*' | b'\'' | b'(' | b')' => out.push(*byte as char),
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'!'
+            | b'~'
+            | b'*'
+            | b'\''
+            | b'('
+            | b')' => out.push(*byte as char),
             _ => out.push_str(&format!("%{byte:02X}")),
         }
     }
@@ -78,11 +88,7 @@ pub fn join_paths(parts: &[&str]) -> String {
         out.push('/');
         out.push_str(part);
     }
-    if out.is_empty() {
-        "/".to_owned()
-    } else {
-        out
-    }
+    if out.is_empty() { "/".to_owned() } else { out }
 }
 
 /// Renders a node/user host the way share links expect (IPv6 wrapped in brackets).
@@ -105,7 +111,11 @@ mod tests {
         let first = random_secret();
         let second = random_secret();
         assert_ne!(first, second);
-        assert!(first.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert!(
+            first
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        );
     }
 
     #[test]

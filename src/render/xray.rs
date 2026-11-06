@@ -10,7 +10,7 @@
 //! Reference: <https://xtls.github.io/en/config/outbounds/vless.html> and
 //! <https://xtls.github.io/en/config/transports/xhttp.html>
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::protocol::shared::transport::TcpHeaderType;
 use crate::protocol::{ProxyKind, Transport, TrojanConfig, VlessConfig};
@@ -113,11 +113,7 @@ fn trojan(context: &RenderContext, config: &TrojanConfig) -> Value {
 }
 
 /// Builds Xray's `streamSettings`, which nests transport, TLS, and mux.
-fn stream_settings(
-    transport: &Transport,
-    tls: &crate::protocol::TlsConfig,
-    server: &str,
-) -> Value {
+fn stream_settings(transport: &Transport, tls: &crate::protocol::TlsConfig, server: &str) -> Value {
     let mut settings = Map::new();
     settings.insert("network".to_owned(), json!(transport.uri_name()));
 
@@ -189,7 +185,11 @@ fn transport_settings(transport: &Transport) -> Option<Value> {
             if let Some(mode) = options.mode.as_deref().filter(|value| !value.is_empty()) {
                 grpc.insert("multiMode".to_owned(), json!(mode == "multi"));
             }
-            if let Some(authority) = options.authority.as_deref().filter(|value| !value.is_empty()) {
+            if let Some(authority) = options
+                .authority
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
                 grpc.insert("authority".to_owned(), json!(authority));
             }
             Some(Value::Object(grpc))
@@ -242,10 +242,7 @@ fn tls_settings(tls: &crate::protocol::TlsConfig, server: &str) -> Value {
     if !tls.alpn.is_empty() {
         settings.insert("alpn".to_owned(), json!(tls.alpn));
     }
-    settings.insert(
-        "fingerprint".to_owned(),
-        json!(tls.effective_fingerprint()),
-    );
+    settings.insert("fingerprint".to_owned(), json!(tls.effective_fingerprint()));
 
     if let Some(hash) = tls.certificate_sha256_value() {
         settings.insert("pinnedPeerCertificateChainSha256".to_owned(), json!(hash));
@@ -297,7 +294,9 @@ fn reality_settings(tls: &crate::protocol::TlsConfig, server: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::shared::transport::{TcpOptions, WebSocketOptions, XhttpExtra, XhttpMode, XhttpOptions};
+    use crate::protocol::shared::transport::{
+        TcpOptions, WebSocketOptions, XhttpExtra, XhttpMode, XhttpOptions,
+    };
     use crate::protocol::{AnytlsConfig, Hysteria2Config, RealityConfig, TlsConfig};
     use crate::render::context::{RenderCredentials, RenderUser};
 
@@ -337,7 +336,10 @@ mod tests {
         assert_eq!(outbound["protocol"], "vless");
         assert_eq!(outbound["settings"]["address"], "example.com");
         assert_eq!(outbound["settings"]["port"], 443);
-        assert_eq!(outbound["settings"]["id"], "5783a3e7-e373-51cd-8642-c83782b807c5");
+        assert_eq!(
+            outbound["settings"]["id"],
+            "5783a3e7-e373-51cd-8642-c83782b807c5"
+        );
         assert_eq!(outbound["settings"]["encryption"], "none");
         assert_eq!(outbound["settings"]["flow"], "xtls-rprx-vision");
         assert_eq!(outbound["streamSettings"]["security"], "tls");
@@ -366,9 +368,18 @@ mod tests {
         })));
 
         assert_eq!(outbound["streamSettings"]["security"], "reality");
-        assert_eq!(outbound["streamSettings"]["realitySettings"]["publicKey"], "pbk");
-        assert_eq!(outbound["streamSettings"]["realitySettings"]["shortId"], "abcd");
-        assert_eq!(outbound["streamSettings"]["realitySettings"]["spiderX"], "/spx");
+        assert_eq!(
+            outbound["streamSettings"]["realitySettings"]["publicKey"],
+            "pbk"
+        );
+        assert_eq!(
+            outbound["streamSettings"]["realitySettings"]["shortId"],
+            "abcd"
+        );
+        assert_eq!(
+            outbound["streamSettings"]["realitySettings"]["spiderX"],
+            "/spx"
+        );
         assert_eq!(
             outbound["streamSettings"]["realitySettings"]["mldsa65Verify"],
             "mldsa"
@@ -409,7 +420,10 @@ mod tests {
             ..Default::default()
         })));
 
-        assert_eq!(outbound["streamSettings"]["tcpSettings"]["header"]["type"], "http");
+        assert_eq!(
+            outbound["streamSettings"]["tcpSettings"]["header"]["type"],
+            "http"
+        );
     }
 
     #[test]
@@ -424,7 +438,10 @@ mod tests {
             ..Default::default()
         })));
 
-        assert_eq!(outbound["streamSettings"]["wsSettings"]["maxEarlyData"], 2048);
+        assert_eq!(
+            outbound["streamSettings"]["wsSettings"]["maxEarlyData"],
+            2048
+        );
         assert_eq!(
             outbound["streamSettings"]["wsSettings"]["earlyDataHeaderName"],
             "Sec-WebSocket-Protocol"

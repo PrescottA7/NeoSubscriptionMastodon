@@ -7,13 +7,13 @@
 
 use axum::{
     body::Body,
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::Response,
 };
 use serde::Deserialize;
 
 use crate::db::users;
-use crate::render::{context::RenderUser, render_collection, Core, RenderContext};
+use crate::render::{Core, RenderContext, context::RenderUser, render_collection};
 use crate::state::AppState;
 
 #[derive(Deserialize, Default)]
@@ -95,15 +95,14 @@ pub async fn respond(
         })
         .unwrap_or_else(|| Core::parse(&settings.default_target).unwrap_or(Core::Uri));
 
-    let resolved = match crate::db::credentials::resolved_for_user(&state.db, &state.key, user.id)
-        .await
-    {
-        Ok(resolved) => resolved,
-        Err(error) => {
-            tracing::warn!(%error, "credential lookup failed");
-            return disguise.not_found().await;
-        }
-    };
+    let resolved =
+        match crate::db::credentials::resolved_for_user(&state.db, &state.key, user.id).await {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                tracing::warn!(%error, "credential lookup failed");
+                return disguise.not_found().await;
+            }
+        };
 
     if resolved.is_empty() {
         return disguise.not_found().await;

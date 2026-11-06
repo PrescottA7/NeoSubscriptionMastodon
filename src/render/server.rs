@@ -12,7 +12,7 @@
 //! It therefore carries the inbound listener, the REALITY private key, and every
 //! account that NSM knows about for the node.
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::protocol::{InboundProtocol, ServerConfig, ServerCore};
 use crate::reality;
@@ -290,7 +290,10 @@ fn hysteria2_config(
     let inbound = &config.inbound;
 
     let mut root = Map::new();
-    root.insert("listen".to_owned(), json!(format!("{}:{}", inbound.listen, inbound.port)));
+    root.insert(
+        "listen".to_owned(),
+        json!(format!("{}:{}", inbound.listen, inbound.port)),
+    );
 
     // Hysteria2 authenticates with a `user: password` map.
     let mut users = Map::new();
@@ -339,7 +342,11 @@ mod tests {
     }
 
     fn account() -> ServerAccount {
-        ServerAccount::new("alice@hk", "11111111-1111-4111-8111-111111111111", "ignored")
+        ServerAccount::new(
+            "alice@hk",
+            "11111111-1111-4111-8111-111111111111",
+            "ignored",
+        )
     }
 
     #[test]
@@ -389,7 +396,10 @@ mod tests {
         let stream = &value["inbounds"][0]["streamSettings"];
         let tls = &stream["tlsSettings"];
 
-        assert_eq!(tls["certificates"][0]["certificateFile"], "/etc/ssl/fullchain.pem");
+        assert_eq!(
+            tls["certificates"][0]["certificateFile"],
+            "/etc/ssl/fullchain.pem"
+        );
         assert_eq!(tls["certificates"][0]["keyFile"], "/etc/ssl/key.pem");
         // An empty `security` would give Xray no TLS layer at all.
         assert_eq!(stream["security"], "tls");

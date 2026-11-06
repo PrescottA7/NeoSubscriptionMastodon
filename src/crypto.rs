@@ -7,8 +7,8 @@
 
 use base64::Engine;
 use chacha20poly1305::{
-    aead::{Aead, KeyInit},
     XChaCha20Poly1305, XNonce,
+    aead::{Aead, KeyInit},
 };
 use rand::RngCore;
 use std::path::Path;

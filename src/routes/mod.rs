@@ -20,12 +20,12 @@ pub mod subscription;
 pub mod users;
 
 use axum::{
+    Json, Router,
     body::Body,
     extract::{Request, State},
     http::{Method, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
-    Json, Router,
 };
 use serde_json::json;
 
@@ -54,7 +54,8 @@ fn api_router(state: &AppState) -> Router<AppState> {
 
 pub fn routes(state: &AppState) -> Router<AppState> {
     let prefix = state.admin_prefix().to_owned();
-    let hosts_hidden = state.config.subscription_host.is_some() || state.config.admin_host.is_some();
+    let hosts_hidden =
+        state.config.subscription_host.is_some() || state.config.admin_host.is_some();
 
     // An empty prefix keeps the historical root layout.
     let api = if prefix.is_empty() {
