@@ -1,3 +1,10 @@
+// Copyright (C) 2026 Prescott Anderson
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This file is part of NSM (NeoSubscriptionMastodon), licensed under the
+// GNU Affero General Public License v3.0 or later. See the LICENSE file
+// in the project root for the full text.
+
 //! Per-node, per-user proxy credentials.
 //!
 //! Each proxy server keeps its own account list, so the same person can be
