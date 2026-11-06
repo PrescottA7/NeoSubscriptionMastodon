@@ -35,7 +35,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { Add, Delete, Edit, Refresh } from "@mui/icons-material";
+import { Add, ContentCopy, Delete, Edit, Refresh } from "@mui/icons-material";
 import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -265,6 +265,16 @@ export default function NodesPage() {
                           aria-label={t("nodes.editAria")}
                         >
                           <Edit sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title={t("nodes.duplicateNode")}>
+                        <IconButton
+                          size="small"
+                          component={RouterLink}
+                          to={`/nodes/new?from=${node.id}`}
+                          aria-label={t("nodes.duplicateAria")}
+                        >
+                          <ContentCopy sx={{ fontSize: 16 }} />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title={t("nodes.deleteNode")}>

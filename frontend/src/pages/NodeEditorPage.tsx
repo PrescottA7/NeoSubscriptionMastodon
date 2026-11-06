@@ -7,7 +7,7 @@
  * in the project root for the full text.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -31,7 +31,7 @@ import {
   Typography,
 } from "@mui/material";
 import { ArrowBack, Add, Delete, Visibility } from "@mui/icons-material";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -43,18 +43,14 @@ import {
   renderServerConfig,
   updateNode,
 } from "../api";
-import { QuicSection, TlsSection } from "../components/TlsEditor";
-import { TransportSection } from "../components/TransportEditor";
+import { duplicateName, parsePositiveId } from "../utils";
 import { defaultParams } from "../components/protocolDefaults";
 import { ServerSection } from "../components/server";
 import { coreForProtocol } from "../components/server/defaults";
 import { CopyButton, MonoBlock } from "../components/CopyButton";
 import PageHeader from "../components/PageHeader";
-import {
-  CredentialFields,
-  EMPTY_CREDENTIALS,
-  type CredentialValues,
-} from "../components/credentials";
+import { CredentialFields, EMPTY_CREDENTIALS } from "../components/credentials";
+import { ProtocolFields, toRow, toInput, type CredentialRow } from "../components/nodeEditor";
 import { noticeAdded } from "../store/noticesSlice";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { loadCatalog } from "../store/catalogSlice";
@@ -70,8 +66,6 @@ import {
   type FieldErrors,
 } from "../validation";
 import type {
-  Credential,
-  CredentialInput,
   NodeParams,
   ProtocolDescriptor,
   ProtocolName,
@@ -79,42 +73,19 @@ import type {
   ServerCore,
 } from "../types";
 
-/** Editor state for one credential row. */
-interface CredentialRow extends CredentialValues {
-  user_id: number;
-  email: string;
-  enabled: boolean;
-}
-
-function toRow(credential: Credential): CredentialRow {
-  return {
-    user_id: credential.user_id,
-    uuid: credential.uuid,
-    password: credential.password,
-    // The server stores the account label in `email`; that is the Hysteria2
-    // username, so the editor exposes it under that name.
-    username: credential.email,
-    email: credential.email,
-    enabled: credential.enabled,
-  };
-}
-
-function toInput(row: CredentialRow): CredentialInput {
-  return {
-    user_id: row.user_id,
-    uuid: row.uuid.trim() || null,
-    password: row.password.trim() || null,
-    email: row.username.trim() || null,
-    enabled: row.enabled,
-  };
-}
-
 export default function NodeEditorPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { t } = useTranslation();
   const users = useAppSelector((state) => state.catalog.users);
+  const knownNodes = useAppSelector((state) => state.catalog.nodes);
+
+  // `?from=<id>` opens the editor for a new node prefilled from an existing one,
+  // so the duplicate is only created when the admin saves it.
+  const copyFromId = id ? null : parsePositiveId(searchParams.get("from"));
+  const copying = copyFromId !== null;
 
   const [protocols, setProtocols] = useState<ProtocolDescriptor[]>([]);
   const [name, setName] = useState("");
@@ -129,7 +100,7 @@ export default function NodeEditorPage() {
   const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null);
   // One row per user; a row means "this user has an account on this node".
   const [credentials, setCredentials] = useState<CredentialRow[]>([]);
-  const [loading, setLoading] = useState(Boolean(id));
+  const [loading, setLoading] = useState(Boolean(id) || copyFromId !== null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -146,20 +117,33 @@ export default function NodeEditorPage() {
       .catch(() => setProtocols([]));
   }, []);
 
-  // Load the existing node once the editor is opened for a specific id.
+  // Load the existing node once the editor is opened for a specific id, or the
+  // source node when duplicating one.
   const nodeId = id ? Number(id) : null;
+  const sourceId = nodeId ?? copyFromId;
+
+  // Held in a ref so a catalogue refresh cannot re-run the prefill below and
+  // wipe edits the admin has already made.
+  const existingNames = useRef<string[]>([]);
   useEffect(() => {
-    if (nodeId === null) {
+    existingNames.current = knownNodes.map((item) => item.name);
+  }, [knownNodes]);
+
+  useEffect(() => {
+    if (sourceId === null) {
       return;
     }
 
     let cancelled = false;
-    getNode(nodeId)
+    getNode(sourceId)
       .then((node) => {
         if (cancelled) {
           return;
         }
-        setName(node.name);
+        // A duplicate keeps every parameter, credential and the enabled flag;
+        // nothing is stored until the admin saves, so it stays adjustable.
+        const duplicating = node.id !== nodeId;
+        setName(duplicating ? duplicateName(node.name, existingNames.current) : node.name);
         setServer(node.server);
         setPort(String(node.port));
         setEnabled(node.enabled);
@@ -182,7 +166,7 @@ export default function NodeEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [nodeId, t]);
+  }, [sourceId, nodeId, t]);
 
   /**
    * The core this node's credentials are shaped for.
@@ -369,7 +353,12 @@ export default function NodeEditorPage() {
         dispatch(noticeAdded({ severity: "success", message: t("nodeEditor.nodeUpdated") }));
       } else {
         await createNode(payload);
-        dispatch(noticeAdded({ severity: "success", message: t("nodeEditor.nodeCreated") }));
+        dispatch(
+          noticeAdded({
+            severity: "success",
+            message: t(copying ? "nodeEditor.nodeDuplicated" : "nodeEditor.nodeCreated"),
+          }),
+        );
       }
       await dispatch(loadCatalog());
       navigate("/", { replace: true });
@@ -398,10 +387,21 @@ export default function NodeEditorPage() {
       <PageHeader
         crumbs={[
           { label: t("nodes.breadcrumb"), to: "/" },
-          { label: id ? name || t("nodeEditor.unnamed") : t("nodeEditor.newNode") },
+          {
+            label:
+              id || copying
+                ? name || t("nodeEditor.unnamed")
+                : t("nodeEditor.newNode"),
+          },
         ]}
-        title={id ? t("nodeEditor.titleEdit") : t("nodeEditor.titleNew")}
-        description={t("nodeEditor.description")}
+        title={
+          id
+            ? t("nodeEditor.titleEdit")
+            : copying
+              ? t("nodeEditor.titleDuplicate")
+              : t("nodeEditor.titleNew")
+        }
+        description={t(copying ? "nodeEditor.duplicateDescription" : "nodeEditor.description")}
         actions={
           <>
             <Button startIcon={<ArrowBack sx={{ fontSize: 16 }} />} onClick={() => navigate("/")}>
@@ -716,463 +716,4 @@ export default function NodeEditorPage() {
       </Dialog>
     </Box>
   );
-}
-
-function ProtocolFields({
-  params,
-  onChange,
-  errors = {},
-}: {
-  params: NodeParams;
-  onChange: (next: NodeParams) => void;
-  errors?: FieldErrors;
-}) {
-  const { t } = useTranslation();
-  const field = (name: string) => ({
-    error: Boolean(errors[name]),
-    helperText: errors[name],
-  });
-  // Errors that belong to a section rather than a single input are surfaced
-  // above the fields so they are never silently swallowed.
-  const sectionErrors = [errors["params.tls.enabled"], errors["params.udp_relay_mode"]].filter(
-    (message): message is string => Boolean(message),
-  );
-
-  switch (params.protocol) {
-    case "vless":
-      return (
-        <Stack spacing={2}>
-          {sectionErrors.map((message) => (
-            <Alert key={message} severity="error">
-              {message}
-            </Alert>
-          ))}
-          <Box
-            sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
-          >
-            <TextField
-              select
-              size="small"
-              label={t("protocol.flow")}
-              value={params.flow ?? ""}
-              onChange={(event) => onChange({ ...params, flow: event.target.value })}
-              {...field("params.flow")}
-              helperText={field("params.flow").helperText ?? t("protocol.flowHelper")}
-            >
-              <MenuItem value="">{t("protocol.flowNone")}</MenuItem>
-              <MenuItem value="xtls-rprx-vision">xtls-rprx-vision</MenuItem>
-            </TextField>
-            <TextField
-              select
-              size="small"
-              label={t("protocol.packetEncoding")}
-              value={params.packet_encoding ?? ""}
-              onChange={(event) => onChange({ ...params, packet_encoding: event.target.value })}
-            >
-              <MenuItem value="">{t("protocol.default")}</MenuItem>
-              <MenuItem value="xudp">xudp</MenuItem>
-              <MenuItem value="packetaddr">packetaddr</MenuItem>
-            </TextField>
-            <TextField
-              size="small"
-              label={t("protocol.vlessEncryption")}
-              value={params.encryption ?? ""}
-              onChange={(event) => onChange({ ...params, encryption: event.target.value })}
-              helperText={t("protocol.vlessEncryptionHelper")}
-            />
-          </Box>
-          <TlsSection
-            tls={params.tls}
-            onChange={(tls) => onChange({ ...params, tls })}
-            errors={errors}
-          />
-          <TransportSection
-            transport={params.transport}
-            onChange={(transport) => onChange({ ...params, transport })}
-            mux={params.mux}
-            onMuxChange={(mux) => onChange({ ...params, mux })}
-          />
-        </Stack>
-      );
-
-    case "trojan":
-      return (
-        <Stack spacing={2}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={params.udp}
-                onChange={(event) => onChange({ ...params, udp: event.target.checked })}
-              />
-            }
-            label={t("protocol.udpEnabled")}
-          />
-          <TlsSection
-            tls={params.tls}
-            onChange={(tls) => onChange({ ...params, tls })}
-            requireTls
-            allowReality={false}
-            errors={errors}
-          />
-          <TransportSection
-            transport={params.transport}
-            onChange={(transport) => onChange({ ...params, transport })}
-            mux={params.mux}
-            onMuxChange={(mux) => onChange({ ...params, mux })}
-          />
-        </Stack>
-      );
-
-    case "hysteria2":
-      return (
-        <Stack spacing={2}>
-          <Box
-            sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
-          >
-            <TextField
-              size="small"
-              label={t("hysteria2.serverPorts")}
-              value={params.server_ports.join(",")}
-              onChange={(event) =>
-                onChange({
-                  ...params,
-                  server_ports: event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter((item) => item.length > 0),
-                })
-              }
-              {...field("params.server_ports")}
-              helperText={field("params.server_ports").helperText ?? t("hysteria2.serverPortsHelper")}
-            />
-            <TextField
-              size="small"
-              label={t("hysteria2.hopInterval")}
-              placeholder="30s"
-              value={params.hop_interval ?? ""}
-              onChange={(event) => onChange({ ...params, hop_interval: event.target.value })}
-              {...field("params.hop_interval")}
-              helperText={field("params.hop_interval").helperText ?? t("hysteria2.hopIntervalHelper")}
-            />
-            <TextField
-              size="small"
-              label={t("hysteria2.maxHopInterval")}
-              placeholder="45s"
-              value={params.hop_interval_max ?? ""}
-              onChange={(event) => onChange({ ...params, hop_interval_max: event.target.value })}
-              {...field("params.hop_interval_max")}
-              helperText={
-                field("params.hop_interval_max").helperText ?? t("hysteria2.maxHopIntervalHelper")
-              }
-            />
-            <TextField
-              size="small"
-              label={t("hysteria2.bbrProfile")}
-              placeholder="standard"
-              value={params.bbr_profile ?? ""}
-              onChange={(event) => onChange({ ...params, bbr_profile: event.target.value })}
-            />
-            <TextField
-              size="small"
-              type="number"
-              label={`${t("hysteria2.up")} Mbps`}
-              value={params.up_mbps ?? ""}
-              onChange={(event) =>
-                onChange({
-                  ...params,
-                  up_mbps: event.target.value === "" ? null : Number(event.target.value),
-                })
-              }
-            />
-            <TextField
-              size="small"
-              type="number"
-              label={`${t("hysteria2.down")} Mbps`}
-              value={params.down_mbps ?? ""}
-              onChange={(event) =>
-                onChange({
-                  ...params,
-                  down_mbps: event.target.value === "" ? null : Number(event.target.value),
-                })
-              }
-            />
-          </Box>
-
-          <Stack direction="row" spacing={3} sx={{ flexWrap: "wrap" }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={Boolean(params.obfs)}
-                  onChange={(event) =>
-                    onChange({
-                      ...params,
-                      obfs: event.target.checked
-                        ? {
-                            obfs_type: "salamander",
-                            password: "",
-                            min_packet_size: null,
-                            max_packet_size: null,
-                          }
-                        : null,
-                    })
-                  }
-                />
-              }
-              label={t("hysteria2.enableObfs")}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={params.brutal_debug}
-                  onChange={(event) => onChange({ ...params, brutal_debug: event.target.checked })}
-                />
-              }
-              label={t("hysteria2.brutalDebug")}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={params.disable_chrome_parrot}
-                  onChange={(event) =>
-                    onChange({ ...params, disable_chrome_parrot: event.target.checked })
-                  }
-                />
-              }
-              label={t("hysteria2.disableChromeParrot")}
-            />
-          </Stack>
-
-          {params.obfs && (
-            <Box
-              sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
-            >
-              <FormControl size="small">
-                <InputLabel>{t("hysteria2.obfsType")}</InputLabel>
-                <Select
-                  label={t("hysteria2.obfsType")}
-                  value={params.obfs.obfs_type}
-                  onChange={(event) =>
-                    onChange({
-                      ...params,
-                      obfs: {
-                        ...params.obfs!,
-                        obfs_type: event.target.value as "salamander" | "gecko",
-                      },
-                    })
-                  }
-                >
-                  <MenuItem value="salamander">salamander</MenuItem>
-                  <MenuItem value="gecko">gecko</MenuItem>
-                </Select>
-              </FormControl>
-              <TextField
-                size="small"
-                label={t("hysteria2.obfsPassword")}
-                value={params.obfs.password}
-                onChange={(event) =>
-                  onChange({ ...params, obfs: { ...params.obfs!, password: event.target.value } })
-                }
-                {...field("params.obfs.password")}
-              />
-              <TextField
-                size="small"
-                type="number"
-                label={t("hysteria2.minPacketSize")}
-                value={params.obfs.min_packet_size ?? ""}
-                onChange={(event) =>
-                  onChange({
-                    ...params,
-                    obfs: {
-                      ...params.obfs!,
-                      min_packet_size: event.target.value === "" ? null : Number(event.target.value),
-                    },
-                  })
-                }
-                helperText={t("hysteria2.geckoOnly")}
-              />
-              <TextField
-                size="small"
-                type="number"
-                label={t("hysteria2.maxPacketSize")}
-                value={params.obfs.max_packet_size ?? ""}
-                onChange={(event) =>
-                  onChange({
-                    ...params,
-                    obfs: {
-                      ...params.obfs!,
-                      max_packet_size: event.target.value === "" ? null : Number(event.target.value),
-                    },
-                  })
-                }
-                {...field("params.obfs.max_packet_size")}
-                helperText={
-                  field("params.obfs.max_packet_size").helperText ?? t("hysteria2.geckoOnly")
-                }
-              />
-            </Box>
-          )}
-
-          <TlsSection
-            tls={params.tls}
-            onChange={(tls) => onChange({ ...params, tls })}
-            requireTls
-            allowReality={false}
-            errors={errors}
-          />
-          <QuicSection quic={params.quic} onChange={(quic) => onChange({ ...params, quic })} />
-        </Stack>
-      );
-
-    case "tuic":
-      return (
-        <Stack spacing={2}>
-          {sectionErrors.map((message) => (
-            <Alert key={message} severity="error">
-              {message}
-            </Alert>
-          ))}
-          <Box
-            sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
-          >
-            <FormControl size="small">
-              <InputLabel>{t("tuic.congestionControl")}</InputLabel>
-              <Select
-                label={t("tuic.congestionControl")}
-                value={params.congestion_control}
-                onChange={(event) =>
-                  onChange({
-                    ...params,
-                    congestion_control: event.target.value as typeof params.congestion_control,
-                  })
-                }
-              >
-                <MenuItem value="cubic">cubic</MenuItem>
-                <MenuItem value="new_reno">new_reno</MenuItem>
-                <MenuItem value="bbr">bbr</MenuItem>
-              </Select>
-            </FormControl>
-            <FormControl size="small">
-              <InputLabel>{t("tuic.udpRelayMode")}</InputLabel>
-              <Select
-                label={t("tuic.udpRelayMode")}
-                value={params.udp_relay_mode}
-                onChange={(event) =>
-                  onChange({
-                    ...params,
-                    udp_relay_mode: event.target.value as typeof params.udp_relay_mode,
-                  })
-                }
-              >
-                <MenuItem value="native">native</MenuItem>
-                <MenuItem value="quic">quic</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              size="small"
-              label={t("tuic.heartbeat")}
-              placeholder="10s"
-              value={params.heartbeat ?? ""}
-              onChange={(event) => onChange({ ...params, heartbeat: event.target.value })}
-              {...field("params.heartbeat")}
-              helperText={field("params.heartbeat").helperText ?? t("tuic.heartbeatHelper")}
-            />
-          </Box>
-          <Stack direction="row" spacing={3} sx={{ flexWrap: "wrap" }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={params.udp_over_stream}
-                  onChange={(event) =>
-                    onChange({ ...params, udp_over_stream: event.target.checked })
-                  }
-                />
-              }
-              label={t("tuic.udpOverStream")}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={params.zero_rtt_handshake}
-                  onChange={(event) =>
-                    onChange({ ...params, zero_rtt_handshake: event.target.checked })
-                  }
-                />
-              }
-              label={t("tuic.zeroRttHandshake")}
-            />
-          </Stack>
-          <TlsSection
-            tls={params.tls}
-            onChange={(tls) => onChange({ ...params, tls })}
-            requireTls
-            allowReality={false}
-            errors={errors}
-          />
-          <QuicSection quic={params.quic} onChange={(quic) => onChange({ ...params, quic })} />
-        </Stack>
-      );
-
-    case "anytls":
-      return (
-        <Stack spacing={2}>
-          <Box
-            sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}
-          >
-            <TextField
-              size="small"
-              label={t("anytls.idleCheckInterval")}
-              placeholder="30s"
-              value={params.idle_session_check_interval ?? ""}
-              onChange={(event) =>
-                onChange({ ...params, idle_session_check_interval: event.target.value })
-              }
-              {...field("params.idle_session_check_interval")}
-              helperText={
-                field("params.idle_session_check_interval").helperText ??
-                t("anytls.durationHelper")
-              }
-            />
-            <TextField
-              size="small"
-              label={t("anytls.idleSessionTimeout")}
-              placeholder="30s"
-              value={params.idle_session_timeout ?? ""}
-              onChange={(event) => onChange({ ...params, idle_session_timeout: event.target.value })}
-              {...field("params.idle_session_timeout")}
-              helperText={
-                field("params.idle_session_timeout").helperText ?? t("anytls.durationHelper")
-              }
-            />
-            <TextField
-              size="small"
-              type="number"
-              label={t("anytls.minIdleSession")}
-              value={params.min_idle_session ?? ""}
-              onChange={(event) =>
-                onChange({
-                  ...params,
-                  min_idle_session: event.target.value === "" ? null : Number(event.target.value),
-                })
-              }
-            />
-            <TextField
-              size="small"
-              label={t("anytls.clientMetadata")}
-              value={params.client_metadata ?? ""}
-              onChange={(event) => onChange({ ...params, client_metadata: event.target.value })}
-            />
-          </Box>
-          <TlsSection
-            tls={params.tls}
-            onChange={(tls) => onChange({ ...params, tls })}
-            requireTls
-            allowReality={false}
-            errors={errors}
-          />
-        </Stack>
-      );
-
-    default:
-      return null;
-  }
 }
