@@ -116,10 +116,11 @@ fn hysteria2(context: &RenderContext, config: &Hysteria2Config) -> String {
     if config.disable_chrome_parrot {
         query.push(("disable-chrome-parrot", "true".to_owned()));
     }
-    if config.tls.insecure {
-        query.push(("insecure", "1".to_owned()));
-    }
-    push_tls_common(&mut query, &config.tls, &context.server);
+    query.push((
+        "insecure",
+        if config.tls.insecure { "1" } else { "0" }.to_owned(),
+    ));
+    push_tls_common(&mut query, &config.tls, &context.server, false);
 
     let userinfo = format!(
         "{}:{}",
@@ -157,7 +158,7 @@ fn tuic(context: &RenderContext, config: &TuicConfig) -> String {
     if config.tls.insecure {
         query.push(("insecure", "1".to_owned()));
     }
-    push_tls_common(&mut query, &config.tls, &context.server);
+    push_tls_common(&mut query, &config.tls, &context.server, true);
 
     let userinfo = format!(
         "{}:{}",
@@ -201,7 +202,7 @@ fn anytls(context: &RenderContext, config: &AnytlsConfig) -> String {
     if config.tls.insecure {
         query.push(("insecure", "1".to_owned()));
     }
-    push_tls_common(&mut query, &config.tls, &context.server);
+    push_tls_common(&mut query, &config.tls, &context.server, true);
 
     build_uri(
         "anytls",
@@ -286,7 +287,7 @@ fn push_tls(
         return;
     }
 
-    push_tls_common(query, tls, server);
+    push_tls_common(query, tls, server, true);
 
     if let Some(reality) = tls.reality.as_ref().filter(|reality| reality.is_usable()) {
         query.push(("pbk", reality.public_key.clone()));
@@ -307,6 +308,7 @@ fn push_tls_common(
     query: &mut Vec<(&str, String)>,
     tls: &crate::protocol::TlsConfig,
     server: &str,
+    include_fingerprint: bool,
 ) {
     if !tls.is_active() {
         return;
@@ -318,7 +320,7 @@ fn push_tls_common(
         query.push(("alpn", alpn));
     }
 
-    if tls.enabled && !tls.reality_enabled() {
+    if include_fingerprint && tls.enabled && !tls.reality_enabled() {
         query.push(("fp", tls.effective_fingerprint().to_owned()));
     }
 
@@ -571,6 +573,8 @@ mod tests {
         assert!(link.starts_with(
             "hysteria2://user%40tokyo:pass%2Fword@[2001:db8::1]:443?"
         ));
+        assert!(link.contains("insecure=0"));
+        assert!(!link.contains("fp="));
         assert!(link.contains("mport=2080%3A3000"));
         assert!(link.contains("hop_interval=30s"));
         assert!(link.contains("upmbps=30"));
