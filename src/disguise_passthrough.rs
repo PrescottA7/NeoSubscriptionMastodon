@@ -27,7 +27,7 @@ use http_body_util::BodyExt;
 use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
-use tracing::debug;
+use tracing::{error, info, warn};
 
 use crate::db::settings::AppSettings;
 
@@ -73,7 +73,7 @@ impl Target {
 
         let template = url::Url::parse(&settings.disguise_template_url).ok()?;
         if template.scheme() != "https" {
-            debug!(scheme = %template.scheme(), "disguise passthrough requires https");
+            tracing::error!(scheme = %template.scheme(), "disguise passthrough requires https");
             return None;
         }
 
@@ -198,7 +198,7 @@ impl Target {
 
         tokio::spawn(async move {
             if let Err(error) = connection.await {
-                debug!(%error, "upstream connection closed with an error");
+                warn!(%error, "upstream connection closed with an error");
             }
         });
 
@@ -282,7 +282,7 @@ fn load_extra_roots(roots: &mut RootCertStore) {
         return;
     };
     let Ok(pem) = std::fs::read(&path) else {
-        debug!(path = %path.to_string_lossy(), "SSL_CERT_FILE is not readable");
+        warn!(path = %path.to_string_lossy(), "SSL_CERT_FILE is not readable");
         return;
     };
 
@@ -292,7 +292,7 @@ fn load_extra_roots(roots: &mut RootCertStore) {
             added += 1;
         }
     }
-    debug!(path = %path.to_string_lossy(), added, "loaded extra TLS roots");
+    info!(path = %path.to_string_lossy(), added, "loaded extra TLS roots");
 }
 
 /// Yields every `CERTIFICATE` block in a PEM bundle.
