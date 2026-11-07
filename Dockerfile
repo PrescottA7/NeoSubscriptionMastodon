@@ -27,7 +27,6 @@ WORKDIR /app
 
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY src/ ./src/
-COPY 404.html ./
 
 # The prebuilt bundle is copied in and build.rs skips the UI build because pnpm
 # is not installed in this stage.
