@@ -26,7 +26,7 @@ export function Logomark({ size = 18 }: { size?: number }) {
           content: '""',
           position: "absolute",
           inset: size / 4.5,
-          backgroundColor: "text.primary",
+          backgroundColor: "primary.main",
           borderRadius: "1px",
         },
       }}

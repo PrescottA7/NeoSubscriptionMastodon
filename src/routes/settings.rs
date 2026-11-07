@@ -30,6 +30,24 @@ struct SettingsResponse {
     available_cores: Vec<&'static str>,
 }
 
+impl SettingsResponse {
+    /// Builds the payload with the prefix actually in use, so a value pinned in
+    /// `config.yml` is reported instead of the stale stored one.
+    fn new(state: &AppState, mut settings: AppSettings, disguise_page: String) -> Self {
+        settings.subscription_prefix = state.subscription_prefix();
+
+        Self {
+            settings,
+            subscription_prefix_pinned: state.config.pinned_subscription_prefix().is_some(),
+            disguise_page,
+            available_cores: crate::render::supported_cores()
+                .iter()
+                .map(|core| core.as_str())
+                .collect(),
+        }
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct DisguisePageUpdate {
     html: String,
@@ -49,15 +67,7 @@ async fn get_settings(State(state): State<AppState>) -> RequestResult<Json<Setti
     let settings = state.settings().await?;
     let disguise_page = state.disguise().page().to_owned();
 
-    Ok(Json(SettingsResponse {
-        settings,
-        subscription_prefix_pinned: state.config.pinned_subscription_prefix().is_some(),
-        disguise_page,
-        available_cores: crate::render::supported_cores()
-            .iter()
-            .map(|core| core.as_str())
-            .collect(),
-    }))
+    Ok(Json(SettingsResponse::new(&state, settings, disguise_page)))
 }
 
 async fn update_settings(
@@ -66,6 +76,21 @@ async fn update_settings(
 ) -> RequestResult<Json<SettingsResponse>> {
     validate_settings(&payload)?;
 
+    // A custom static page and passthrough are mutually exclusive.
+    // Only a switch from off to on is rejected, so installs that already have
+    // both configured can still save their other settings.
+    if payload.disguise_passthrough == Some(true) && {
+        let current = state.settings().await?;
+        !current.disguise_passthrough && current.has_custom_disguise_page
+    } {
+        let mut validator = Validator::new();
+        validator.push(
+            "disguise_passthrough",
+            "Restore the built-in disguise page before enabling 404 passthrough",
+        );
+        validator.finish()?;
+    }
+
     let updated = settings::update(&state.db, &payload)
         .await
         .map_err(|error| crate::error::RequestError::bad_request(error.to_string()))?;
@@ -73,15 +98,11 @@ async fn update_settings(
 
     // `update` returns the freshly resolved settings, so the response is accurate
     // without a second read.
-    Ok(Json(SettingsResponse {
-        settings: updated,
-        subscription_prefix_pinned: state.config.pinned_subscription_prefix().is_some(),
-        disguise_page: state.disguise().page().to_owned(),
-        available_cores: crate::render::supported_cores()
-            .iter()
-            .map(|core| core.as_str())
-            .collect(),
-    }))
+    Ok(Json(SettingsResponse::new(
+        &state,
+        updated,
+        state.disguise().page().to_owned(),
+    )))
 }
 
 /// Rule set mirrored by `frontend/src/validation.ts::validateSettingsForm`.
@@ -180,19 +201,26 @@ async fn update_disguise_page(
     State(state): State<AppState>,
     ApiJson(payload): ApiJson<DisguisePageUpdate>,
 ) -> RequestResult<Json<SettingsResponse>> {
+    // Restoring the built-in page (empty body) is always allowed; a custom page
+    // is rejected while passthrough is on because it would never be served.
+    if !payload.html.trim().is_empty() && state.settings().await?.disguise_passthrough {
+        let mut validator = Validator::new();
+        validator.push(
+            "disguise_page",
+            "Disable 404 passthrough before setting a custom disguise page",
+        );
+        validator.finish()?;
+    }
+
     settings::set_disguise_page(&state.db, &payload.html).await?;
     state.reload_disguise().await?;
 
     let settings = state.settings().await?;
-    Ok(Json(SettingsResponse {
+    Ok(Json(SettingsResponse::new(
+        &state,
         settings,
-        subscription_prefix_pinned: state.config.pinned_subscription_prefix().is_some(),
-        disguise_page: state.disguise().page().to_owned(),
-        available_cores: crate::render::supported_cores()
-            .iter()
-            .map(|core| core.as_str())
-            .collect(),
-    }))
+        state.disguise().page().to_owned(),
+    )))
 }
 
 #[cfg(test)]

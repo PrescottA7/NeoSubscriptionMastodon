@@ -64,6 +64,8 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
   const [templatePort, setTemplatePort] = useState("0");
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  // Passthrough and a custom static page are exclusive; the backend enforces it too.
+  const passthroughBlocked = !passthrough && Boolean(settings?.has_custom_disguise_page);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -316,10 +318,11 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
               label={t("settings.disguisePageField")}
               value={disguise}
               onChange={(event) => setDisguise(event.target.value)}
-              helperText={t("settings.disguisePageHelper")}
+              disabled={passthrough}
+              helperText={passthrough ? t("settings.disguisePageDisabled") : t("settings.disguisePageHelper")}
             />
             <Box sx={{ mt: 2 }}>
-              <Button variant="contained" disabled={saving} onClick={() => void handleSaveDisguise()}>
+              <Button variant="contained" disabled={saving || passthrough} onClick={() => void handleSaveDisguise()}>
                 {t("settings.saveDisguisePage")}
               </Button>
             </Box>
@@ -338,10 +341,11 @@ export default function SettingsPage({ onLogout }: { onLogout: () => void }) {
               control={
                 <Switch
                   checked={passthrough}
+                  disabled={passthroughBlocked}
                   onChange={(event) => setPassthrough(event.target.checked)}
                 />
               }
-              label={t("settings.enablePassthrough")}
+              label={passthroughBlocked ? t("settings.passthroughBlocked") : t("settings.enablePassthrough")}
               sx={{ mb: 2 }}
             />
             <Box

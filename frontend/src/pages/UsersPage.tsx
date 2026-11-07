@@ -18,21 +18,12 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
   Snackbar,
   Stack,
-  Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
-  Tooltip,
   Typography,
 } from "@mui/material";
-import { Add, Check, Close, Delete, Edit, Link as LinkIcon, Refresh } from "@mui/icons-material";
+import { Add, Refresh } from "@mui/icons-material";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -45,7 +36,7 @@ import {
 } from "../api";
 import { CopyButton, MonoBlock } from "../components/CopyButton";
 import PageHeader from "../components/PageHeader";
-import { MONO_FONT } from "../theme";
+import UserCard from "../components/UserCard";
 import { noticeAdded } from "../store/noticesSlice";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { loadCatalog } from "../store/catalogSlice";
@@ -237,121 +228,37 @@ export default function UsersPage() {
         }
       />
 
-      <Card>
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>{t("users.tableUser")}</TableCell>
-                <TableCell>{t("users.tableLink")}</TableCell>
-                <TableCell>{t("users.tableAccess")}</TableCell>
-                <TableCell>{t("users.tableStatus")}</TableCell>
-                <TableCell align="right">{t("users.tableActions")}</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading && <UsersLoadingRow />}
-              {!loading && users.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                    {t("users.noUsers")}
-                  </TableCell>
-                </TableRow>
-              )}
-              {users.map((user) => (
-                <TableRow key={user.id} hover>
-                  <TableCell>{userLabel(user)}</TableCell>
-                  <TableCell>
-                    {editing?.user.id === user.id ? (
-                      <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-                        <Typography
-                          sx={{ fontFamily: MONO_FONT, fontSize: "0.75rem", color: "text.secondary" }}
-                        >
-                          {slugPrefix(user)}
-                        </Typography>
-                        <TextField
-                          size="small"
-                          value={editing.draft}
-                          autoFocus
-                          onChange={(event) => setEditing({ user, draft: event.target.value })}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              void handleRename();
-                            }
-                            if (event.key === "Escape") {
-                              setEditing(null);
-                            }
-                          }}
-                          sx={{ width: 200 }}
-                        />
-                        <IconButton
-                          size="small"
-                          aria-label={t("users.savePath")}
-                          onClick={() => void handleRename()}
-                        >
-                          <Check fontSize="small" />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          aria-label={t("common.cancel")}
-                          onClick={() => setEditing(null)}
-                        >
-                          <Close fontSize="small" />
-                        </IconButton>
-                      </Stack>
-                    ) : (
-                      <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-                        <Typography sx={{ fontFamily: MONO_FONT, fontSize: "0.75rem" }}>
-                          {user.subscription_path}
-                        </Typography>
-                        <Tooltip title={t("users.editPath")}>
-                          <IconButton
-                            size="small"
-                            aria-label={t("users.editPath")}
-                            onClick={() => setEditing({ user, draft: user.token })}
-                          >
-                            <Edit fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <CopyButton value={userLink(user)} />
-                      </Stack>
-                    )}
-                  </TableCell>
-                  <TableCell>{user.access_count}</TableCell>
-                  <TableCell>
-                    <Switch
-                      size="small"
-                      checked={user.enabled}
-                      onChange={() => void handleToggle(user)}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <Tooltip title={t("users.resetLink")}>
-                      <IconButton
-                        size="small"
-                        onClick={() => void handleReset(user)}
-                        aria-label={t("users.resetLinkAria")}
-                      >
-                        <LinkIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title={t("common.delete")}>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => setConfirmDelete(user)}
-                        aria-label={t("users.deleteAria")}
-                      >
-                        <Delete fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Card>
+      {loading && (
+        <Box sx={{ display: "grid", placeItems: "center", py: 4 }}>
+          <CircularProgress size={22} />
+        </Box>
+      )}
+      {!loading && users.length === 0 && (
+        <Card>
+          <Typography align="center" sx={{ py: 4, color: "text.secondary" }}>
+            {t("users.noUsers")}
+          </Typography>
+        </Card>
+      )}
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))" } }}>
+        {users.map((user) => (
+          <UserCard
+            key={user.id}
+            user={user}
+            label={userLabel(user)}
+            link={userLink(user)}
+            prefix={slugPrefix(user)}
+            draft={editing?.user.id === user.id ? editing.draft : null}
+            onEdit={() => setEditing({ user, draft: user.token })}
+            onDraftChange={(draft) => setEditing({ user, draft })}
+            onSave={() => void handleRename()}
+            onCancel={() => setEditing(null)}
+            onToggle={() => void handleToggle(user)}
+            onReset={() => void handleReset(user)}
+            onDelete={() => setConfirmDelete(user)}
+          />
+        ))}
+      </Box>
 
       <Dialog open={createOpen} onClose={closeCreateDialog} fullWidth maxWidth="sm">
         <DialogTitle>{t("users.createUserTitle")}</DialogTitle>
@@ -464,12 +371,3 @@ export default function UsersPage() {
   );
 }
 
-function UsersLoadingRow() {
-  return (
-    <TableRow>
-      <TableCell colSpan={5} align="center">
-        <CircularProgress size={22} sx={{ my: 2 }} />
-      </TableCell>
-    </TableRow>
-  );
-}

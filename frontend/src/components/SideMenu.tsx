@@ -17,6 +17,7 @@ import {
 } from "@mui/material";
 
 import MuiDrawer, { drawerClasses } from "@mui/material/Drawer";
+import { alpha } from "@mui/material/styles";
 import { useLocation, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { ReactNode } from "react";
@@ -98,7 +99,7 @@ export default function SideMenu({ pages, username, onLogout }: SideMenuProps) {
               content: '""',
               position: "absolute",
               inset: 4,
-              backgroundColor: "text.primary",
+              backgroundColor: "primary.main",
               borderRadius: "1px",
             },
           }}
@@ -133,20 +134,26 @@ export default function SideMenu({ pages, username, onLogout }: SideMenuProps) {
               selected={active}
               sx={{
                 gap: 1.25,
-                borderRadius: 6,
+                borderRadius: "0 6px 6px 0",
                 mb: 0.25,
                 minHeight: 36,
                 px: 1.5,
-                color: active ? "text.primary" : "text.secondary",
+                color: active ? "primary.main" : "text.secondary",
                 fontWeight: active ? 600 : 400,
-                position: "relative",
-                // The rule, the weight and the colour already mark the active
-                // section; a filled pill on top of that is redundant.
-                "&.Mui-selected": {
-                  backgroundColor: "transparent",
-                  "&:hover": { backgroundColor: active ? "transparent" : "action.hover" },
+                transition: "background-color 120ms ease, color 120ms ease",
+                "&:hover:not(.Mui-selected)": {
+                  backgroundColor: "action.hover",
+                  color: "text.primary",
                 },
-                // A left rule marks the active section without adding colour.
+                position: "relative",
+                // A faint accent wash backs the active item and deepens on hover.
+                "&.Mui-selected": {
+                  backgroundColor: (theme) => alpha(theme.palette.primary.main, 0.08),
+                  "&:hover": {
+                    backgroundColor: (theme) => alpha(theme.palette.primary.main, 0.12),
+                  },
+                },
+                // A left rule in the accent colour marks the active section; the flat left edge keeps it flush with the hover fill.
                 "&::before": active
                   ? {
                       content: '""',
@@ -156,7 +163,7 @@ export default function SideMenu({ pages, username, onLogout }: SideMenuProps) {
                       bottom: 8,
                       width: 2,
                       borderRadius: 2,
-                      backgroundColor: "text.primary",
+                      backgroundColor: "primary.main",
                     }
                   : undefined,
               }}
@@ -168,7 +175,7 @@ export default function SideMenu({ pages, username, onLogout }: SideMenuProps) {
                   display: "flex",
                   width: 18,
                   flexShrink: 0,
-                  color: active ? "text.primary" : "text.disabled",
+                  color: active ? "primary.main" : "text.disabled",
                 }}
               >
                 {item.icon}

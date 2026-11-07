@@ -83,7 +83,17 @@ export default function SignIn({ mode }: { mode: "login" | "setup" }) {
       </Stack>
 
       <Box sx={{ flexGrow: 1, display: "grid", placeItems: "center", px: 3, pb: 12 }}>
-        <Box sx={{ width: "100%", maxWidth: 320 }}>
+        <Box
+          sx={{
+            width: "100%",
+            maxWidth: 360,
+            p: 3.5,
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: "8px",
+            backgroundColor: "background.paper",
+          }}
+        >
           <Typography sx={{ mb: 3, fontSize: "0.875rem", color: "text.secondary" }}>
             {t(mode === "setup" ? "auth.setupMessage" : "auth.signInMessage")}
           </Typography>

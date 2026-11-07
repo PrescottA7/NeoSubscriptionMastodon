@@ -605,6 +605,87 @@ async fn passthrough_rejects_a_plain_http_template() {
 }
 
 #[tokio::test]
+async fn passthrough_is_rejected_while_a_custom_page_exists() {
+    let harness = harness().await;
+    let cookie = setup(&harness).await;
+
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::PUT,
+            "/api/settings/disguise-page",
+            json!({ "html": "<html>decoy</html>" }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::PUT,
+            "/api/settings",
+            json!({
+                "disguise_passthrough": true,
+                "disguise_template_url": "https://sample.example.com/",
+            }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.contains("disguise_passthrough"), "{body}");
+}
+
+#[tokio::test]
+async fn custom_page_is_rejected_while_passthrough_is_on() {
+    let harness = harness().await;
+    let cookie = setup(&harness).await;
+
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::PUT,
+            "/api/settings",
+            json!({
+                "disguise_passthrough": true,
+                "disguise_template_url": "https://sample.example.com/",
+            }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::PUT,
+            "/api/settings/disguise-page",
+            json!({ "html": "<html>decoy</html>" }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.contains("disguise_page"), "{body}");
+
+    // Restoring the built-in page stays allowed.
+    let (status, body, _) = send(
+        &harness,
+        json_request(
+            Method::PUT,
+            "/api/settings/disguise-page",
+            json!({ "html": "" }),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test]
 async fn subscription_host_hides_the_admin_area() {
     let harness = split_harness().await;
 
@@ -800,6 +881,8 @@ async fn the_pinned_prefix_is_reported_as_locked() {
     let settings: Value = serde_json::from_str(&body).expect("json");
     // The UI locks the field when the prefix comes from the config file.
     assert_eq!(settings["subscription_prefix_pinned"], true);
+    // The reported value is the pinned one, not the stale database default.
+    assert_eq!(settings["subscription_prefix"], "/link", "{body}");
     // And it shows the pinned value, never the stale database one.
     let (_, body, _) = send(&harness, {
         let mut request = host_request(

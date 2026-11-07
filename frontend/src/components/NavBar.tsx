@@ -106,7 +106,7 @@ export default function NavBar({
                     borderRadius: 6,
                     minHeight: 38,
                     mb: 0.25,
-                    color: active ? "text.primary" : "text.secondary",
+                    color: active ? "primary.main" : "text.secondary",
                     fontWeight: active ? 600 : 400,
                   }}
                 >
@@ -117,7 +117,7 @@ export default function NavBar({
                       display: "flex",
                       width: 18,
                       flexShrink: 0,
-                      color: active ? "text.primary" : "text.disabled",
+                      color: active ? "primary.main" : "text.disabled",
                     }}
                   >
                     {item.icon}

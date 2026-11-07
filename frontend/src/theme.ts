@@ -45,7 +45,7 @@ const NEUTRALS = {
 export const MONO_FONT =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
 
-/** Accent used when none is configured: the familiar Windows/Microsoft blue. */
+/** Accent used when none is configured: emerald green. */
 export const DEFAULT_ACCENT = "#16a34a";
 
 /** Preset accents offered in the settings screen; `labelKey` is translated. */
@@ -163,6 +163,7 @@ export function buildTheme(mode: PaletteMode, accent: string = DEFAULT_ACCENT): 
           "*::selection": {
             backgroundColor: accentWash(isDark ? 0.32 : 0.2),
           },
+          "*": { scrollbarWidth: "thin", scrollbarColor: `${c.borderStrong} transparent` },
           code: { fontFamily: MONO_FONT, fontSize: "0.85em" },
         },
       },
@@ -252,6 +253,15 @@ export function buildTheme(mode: PaletteMode, accent: string = DEFAULT_ACCENT): 
         },
       },
       MuiDivider: { styleOverrides: { root: { borderColor: c.border } } },
+      MuiMenu: {
+        styleOverrides: {
+          paper: { border: `1px solid ${c.border}`, backgroundImage: "none", borderRadius: 8 },
+        },
+      },
+      MuiMenuItem: { styleOverrides: { root: { fontSize: "0.8125rem", minHeight: 34 } } },
+      MuiTableRow: {
+        styleOverrides: { root: { "&:last-child .MuiTableCell-root": { borderBottom: 0 } } },
+      },
       MuiAccordion: {
         defaultProps: { elevation: 0, disableGutters: true },
         styleOverrides: {

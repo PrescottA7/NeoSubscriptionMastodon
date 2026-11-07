@@ -13,29 +13,18 @@ import {
   Box,
   Button,
   Card,
-  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControlLabel,
-  IconButton,
   MenuItem,
   Snackbar,
   Stack,
-  Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
-  Tooltip,
   Typography,
 } from "@mui/material";
-import { Add, ContentCopy, Delete, Edit, Refresh } from "@mui/icons-material";
+import { Add, Refresh } from "@mui/icons-material";
 import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -46,8 +35,8 @@ import {
   setNodeEnabled,
 } from "../api";
 import { CopyButton, MonoBlock } from "../components/CopyButton";
+import NodeCard from "../components/NodeCard";
 import PageHeader from "../components/PageHeader";
-import { MONO_FONT } from "../theme";
 import { noticeAdded } from "../store/noticesSlice";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { loadCatalog, nodeUpdated, nodesReplaced } from "../store/catalogSlice";
@@ -181,119 +170,30 @@ export default function NodesPage() {
         </Alert>
       )}
 
-      <Card>
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>{t("nodes.nodeName")}</TableCell>
-                <TableCell>{t("nodes.protocol")}</TableCell>
-                <TableCell>{t("nodes.address")}</TableCell>
-                <TableCell>{t("nodes.status")}</TableCell>
-                <TableCell align="right">{t("nodes.actions")}</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading && (
-                <TableRow>
-                  <TableCell colSpan={5} align="center">
-                    <CircularProgress size={22} sx={{ my: 2 }} />
-                  </TableCell>
-                </TableRow>
-              )}
-              {!loading && nodes.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                    {t("nodes.noNodes")}
-                  </TableCell>
-                </TableRow>
-              )}
-              {nodes.map((node) => (
-                <TableRow key={node.id} hover sx={{ "& td": { whiteSpace: "nowrap" } }}>
-                  <TableCell>
-                    <Typography sx={{ fontWeight: 500, fontSize: "0.8125rem" }}>
-                      {node.name}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      label={t(`protocol.${node.protocol}`, node.protocol)}
-                      variant="outlined"
-                    />
-                  </TableCell>
-                  <TableCell sx={{ fontFamily: MONO_FONT, fontSize: "0.75rem" }}>
-                    {node.server}:{node.port}
-                  </TableCell>
-                  <TableCell>
-                    <FormControlLabel
-                      sx={{ m: 0, gap: 0.5, "& .MuiFormControlLabel-label": { fontSize: "0.75rem" } }}
-                      control={
-                        <Switch
-                          size="small"
-                          checked={node.enabled}
-                          disabled={toggling.has(node.id)}
-                          onChange={(event) => void handleToggle(node, event.target.checked)}
-                          inputProps={{ "aria-label": t("nodes.enableToggle", { name: node.name }) }}
-                        />
-                      }
-                      label={t(node.enabled ? "nodes.enabled" : "nodes.disabled")}
-                    />
-                  </TableCell>
-                  <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
-                    <Stack direction="row" spacing={0.5} sx={{ justifyContent: "flex-end" }}>
-                      <Button
-                        size="small"
-                        variant="text"
-                        sx={{
-                          minWidth: 0,
-                          px: 1,
-                          whiteSpace: "nowrap",
-                          fontSize: "0.75rem",
-                          color: "text.secondary",
-                          "&:hover": { color: "text.primary" },
-                        }}
-                        onClick={() => openPreview(node)}
-                      >
-                        {t("nodes.serverConfig")}
-                      </Button>
-                      <Tooltip title={t("nodes.editNode")}>
-                        <IconButton
-                          size="small"
-                          component={RouterLink}
-                          to={`/nodes/${node.id}`}
-                          aria-label={t("nodes.editAria")}
-                        >
-                          <Edit sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={t("nodes.duplicateNode")}>
-                        <IconButton
-                          size="small"
-                          component={RouterLink}
-                          to={`/nodes/new?from=${node.id}`}
-                          aria-label={t("nodes.duplicateAria")}
-                        >
-                          <ContentCopy sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={t("nodes.deleteNode")}>
-                        <IconButton
-                          size="small"
-                          onClick={() => setConfirmDelete(node)}
-                          aria-label={t("nodes.deleteAria")}
-                        >
-                          <Delete sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Tooltip>
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Card>
+      {loading && (
+        <Box sx={{ display: "grid", placeItems: "center", py: 4 }}>
+          <CircularProgress size={22} />
+        </Box>
+      )}
+      {!loading && nodes.length === 0 && (
+        <Card>
+          <Typography align="center" sx={{ py: 4, color: "text.secondary" }}>
+            {t("nodes.noNodes")}
+          </Typography>
+        </Card>
+      )}
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))" } }}>
+        {nodes.map((node) => (
+          <NodeCard
+            key={node.id}
+            node={node}
+            toggling={toggling.has(node.id)}
+            onToggle={(enabled) => void handleToggle(node, enabled)}
+            onPreview={() => openPreview(node)}
+            onDelete={() => setConfirmDelete(node)}
+          />
+        ))}
+      </Box>
 
       <Dialog open={Boolean(preview)} onClose={closePreview} fullWidth maxWidth="md">
         <DialogTitle>
