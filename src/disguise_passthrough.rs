@@ -299,7 +299,7 @@ fn load_extra_roots(roots: &mut RootCertStore) {
     };
 
     let mut added = 0;
-    for block in rustls_pemfile_iterator(&pem) {
+    for block in pem_certificates(&pem) {
         if roots.add(block).is_ok() {
             added += 1;
         }
@@ -307,53 +307,13 @@ fn load_extra_roots(roots: &mut RootCertStore) {
     info!(path = %path.to_string_lossy(), added, "loaded extra TLS roots");
 }
 
-/// Yields every `CERTIFICATE` block in a PEM bundle.
-fn rustls_pemfile_iterator(pem: &[u8]) -> Vec<rustls::pki_types::CertificateDer<'static>> {
-    static BEGIN: &str = "-----BEGIN CERTIFICATE-----";
-    static END: &str = "-----END CERTIFICATE-----";
-
-    let text = String::from_utf8_lossy(pem);
-    let mut certificates = Vec::new();
-    let mut rest = text.as_ref();
-    while let Some(start) = rest.find(BEGIN) {
-        let Some(end) = rest[start..].find(END) else {
-            break;
-        };
-        let body = &rest[start + BEGIN.len()..start + end];
-        let der = body
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect::<String>();
-        if let Ok(bytes) = base64_decode(&der) {
-            certificates.push(rustls::pki_types::CertificateDer::from(bytes));
-        }
-        rest = &rest[start + end + END.len()..];
-    }
-    certificates
-}
-
-/// Minimal standard-alphabet base64 decoder for PEM bodies.
-fn base64_decode(input: &str) -> Result<Vec<u8>, ()> {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    let mut out = Vec::with_capacity(input.len() / 4 * 3);
-    let mut buffer = 0u32;
-    let mut bits = 0u32;
-    for byte in input.bytes() {
-        if byte == b'=' {
-            break;
-        }
-        let Some(value) = ALPHABET.iter().position(|candidate| *candidate == byte) else {
-            return Err(());
-        };
-        buffer = (buffer << 6) | value as u32;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((buffer >> bits) as u8);
-        }
-    }
-    Ok(out)
+/// Yields every `CERTIFICATE` block in a PEM bundle, skipping other sections.
+/// Malformed blocks are dropped rather than failing the whole bundle, and
+/// `RootCertStore::add` rejects the ones that are not valid DER anyway.
+fn pem_certificates(pem: &[u8]) -> Vec<rustls::pki_types::CertificateDer<'static>> {
+    rustls_pemfile::certs(&mut &pem[..])
+        .filter_map(Result::ok)
+        .collect()
 }
 
 /// Converts a mirrored answer into a response with fingerprints stripped.
@@ -486,5 +446,71 @@ mod tests {
         );
         // Origin form, not an absolute-form proxy request.
         assert_eq!(request.uri().to_string(), "/admin");
+    }
+
+    /// Builds a PEM bundle from `(label, body)` pairs, encoding each body as base64.
+    fn pem_bundle(sections: &[(&str, &[u8])]) -> String {
+        use base64::Engine;
+
+        let mut out = String::new();
+        for (label, bytes) in sections {
+            out.push_str(&format!("-----BEGIN {label}-----\n"));
+            out.push_str(&base64::engine::general_purpose::STANDARD.encode(bytes));
+            out.push_str(&format!("\n-----END {label}-----\n"));
+        }
+        out
+    }
+
+    #[test]
+    fn every_certificate_block_is_collected_and_other_sections_are_skipped() {
+        let pem = pem_bundle(&[
+            ("CERTIFICATE", &[1, 2, 3]),
+            ("PRIVATE KEY", &[9, 9, 9]),
+            ("CERTIFICATE", &[4, 5, 6, 7]),
+        ]);
+
+        let certificates = pem_certificates(pem.as_bytes());
+        assert_eq!(certificates.len(), 2);
+        assert_eq!(certificates[0].as_ref(), [1, 2, 3]);
+        assert_eq!(certificates[1].as_ref(), [4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn a_bundle_without_certificates_yields_nothing() {
+        assert!(pem_certificates(b"").is_empty());
+        assert!(pem_certificates(b"this is not a pem file").is_empty());
+
+        let keys_only = pem_bundle(&[("PRIVATE KEY", &[1, 2, 3])]);
+        assert!(pem_certificates(keys_only.as_bytes()).is_empty());
+    }
+
+    #[test]
+    fn a_malformed_block_does_not_discard_the_rest_of_the_bundle() {
+        let mut pem =
+            String::from("-----BEGIN CERTIFICATE-----\n!!!not base64!!!\n-----END CERTIFICATE-----\n");
+        pem.push_str(&pem_bundle(&[("CERTIFICATE", &[8, 9])]));
+
+        let certificates = pem_certificates(pem.as_bytes());
+        assert_eq!(certificates.len(), 1);
+        assert_eq!(certificates[0].as_ref(), [8, 9]);
+    }
+
+    #[test]
+    fn folded_bodies_are_decoded() {
+        // Real bundles wrap base64 bodies at 64 characters; the decoded bytes must match exactly.
+        use base64::Engine;
+
+        let bytes: Vec<u8> = (0..=255u8).collect();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let folded: String = encoded
+            .as_bytes()
+            .chunks(64)
+            .map(|chunk| format!("{}\n", std::str::from_utf8(chunk).expect("ascii")))
+            .collect();
+        let pem = format!("-----BEGIN CERTIFICATE-----\n{folded}-----END CERTIFICATE-----\n");
+
+        let certificates = pem_certificates(pem.as_bytes());
+        assert_eq!(certificates.len(), 1);
+        assert_eq!(certificates[0].as_ref(), bytes.as_slice());
     }
 }
