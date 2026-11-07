@@ -5,7 +5,7 @@
 // GNU Affero General Public License v3.0 or later. See the LICENSE file
 // in the project root for the full text.
 
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use axum::{
     body::Body, http::{HeaderValue, StatusCode, header, request}, response::{IntoResponse, Response},
@@ -61,7 +61,7 @@ impl Disguise {
                         let mut response = if parts.method == Method::HEAD {
                             Response::new(Body::empty())
                         } else {
-                            Response::new(Body::from(BUILTIN_PAGE.to_owned()))
+                            Response::new(Body::from(Cow::Borrowed(BUILTIN_PAGE)))
                         };
                         *response.status_mut() = StatusCode::NOT_FOUND;
                         response.headers_mut().insert(
