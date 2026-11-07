@@ -73,8 +73,8 @@ cookie_secure: false
 
 ### 日志
 
-- 在终端里运行时输出到 stdout（`RUST_LOG` 可调，默认 `info`，`sqlx` 降为 `warn`）
-- **双击启动或重定向输出时**：自动写入 `<data_root>/logs/nsm.log`，超过 10 MiB 轮转为 `nsm.log.1`
+- 在终端里运行，或设置 `NSM_LOG_STDOUT=1`（`true` 亦可）时输出到 stdout（`RUST_LOG` 可调，默认 `info`，`sqlx` 降为 `warn`）。Docker 镜像默认开启，可用 `docker compose logs` 查看
+- **双击启动或重定向输出时**（且未设置 `NSM_LOG_STDOUT`）：自动写入 `<data_root>/logs/nsm.log`，超过 10 MiB 轮转为 `nsm.log.1`
 - 启动时会打印日志文件位置、监听地址，以及 `config.yml` 是否为本次生成
 - 每个请求都会记录状态码与耗时，便于排查登录问题
 - 端口被占用等致命错误会写到 stderr 并退出码 1
@@ -91,6 +91,7 @@ docker compose up -d --build
 | --- | --- |
 | `NSM_PORT` | 宿主机映射端口，默认 3000 |
 | `NSM_COOKIE_SECURE` | `true` 时会话 cookie 带 `Secure`，需在 HTTPS 后使用 |
+| `NSM_LOG_STDOUT` | `true`/`1` 时日志输出到 stdout，默认 `true`；设为 `false` 则写入 `data/logs/nsm.log` |
 
 镜像以非 root 用户运行，内置 `HEALTHCHECK`。
 
@@ -222,7 +223,7 @@ GET /api/nodes/{id}/server-config?download=1 # 附件下载
 data/
 ├─ nsm.sqlite3          # 用户、节点、节点凭据、会话、设置
 ├─ encryption.key       # 加密节点密码的 32 字节密钥
-└─ logs/nsm.log         # 非终端运行时写入，超过 10 MiB 轮转
+└─ logs/nsm.log         # 非终端且未设置 NSM_LOG_STDOUT 时写入，超过 10 MiB 轮转
 ```
 
 `encryption.key` 与数据库必须一起备份，否则 `node_credentials` 中保存的密码无法解密。

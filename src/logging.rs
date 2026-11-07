@@ -15,7 +15,8 @@ const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
 /// Installs the global logger.
 ///
 /// - respects `RUST_LOG`, defaulting to `info`;
-/// - writes to stdout when it is a terminal, so interactive runs look normal;
+/// - writes to stdout when it is a terminal or `NSM_LOG_STDOUT` is `1`/`true`
+///   (set in the Docker image, where there is no TTY);
 /// - otherwise writes to `<data_root>/logs/nsm.log`, because a double-clicked
 ///   binary has no visible stdout and its output would be lost.
 pub fn init(data_root: &std::path::Path) -> anyhow::Result<Option<std::path::PathBuf>> {
@@ -25,7 +26,7 @@ pub fn init(data_root: &std::path::Path) -> anyhow::Result<Option<std::path::Pat
         EnvFilter::new("info,sqlx=warn,sea_orm=warn")
     });
 
-    if std::io::stdout().is_terminal() {
+    if stdout_forced() || std::io::stdout().is_terminal() {
         tracing_subscriber::fmt()
             .with_env_filter(filter)
             .with_target(true)
@@ -55,6 +56,10 @@ pub fn init(data_root: &std::path::Path) -> anyhow::Result<Option<std::path::Pat
         .init();
 
     Ok(Some(path))
+}
+
+fn stdout_forced() -> bool {
+    std::env::var("NSM_LOG_STDOUT").is_ok_and(|value| matches!(value.as_str(), "1" | "true"))
 }
 
 fn rotate_if_needed(path: &std::path::Path, dir: &std::path::Path) -> std::io::Result<()> {

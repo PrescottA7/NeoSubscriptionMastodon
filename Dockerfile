@@ -58,6 +58,10 @@ VOLUME ["/app/data"]
 
 USER nsm
 
+# Containers have no TTY, so without this logs would go to /app/data/logs/nsm.log
+# and `docker compose logs` would stay empty.
+ENV NSM_LOG_STDOUT=true
+
 # A TCP connect instead of an HTTP GET: the admin prefix and the accepted hosts
 # are configurable, so no single URL is guaranteed to answer from inside the
 # container. A listener on the configured port is the one thing `bind_addr`

@@ -9,6 +9,7 @@ services:
       - "${NSM_PORT:-3000}:3000"
     environment:
       NSM_COOKIE_SECURE: "${NSM_COOKIE_SECURE:-false}"
+      NSM_LOG_STDOUT: "${NSM_LOG_STDOUT:-true}"
     volumes:
       - nsm-data:/app/data
     healthcheck:
