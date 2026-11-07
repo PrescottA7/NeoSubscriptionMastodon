@@ -73,7 +73,7 @@ impl AppState {
 
         let settings = db::settings::load(&db).await?;
         let custom_page = db::settings::get_disguise_page(&db).await?;
-        let disguise = Disguise::new(load_disguise_page(&config, custom_page), &settings);
+        let disguise = Disguise::from_settings(load_disguise_page(&config, custom_page), &settings);
 
         Ok(Self {
             disguise: Arc::new(RwLock::new(disguise)),
@@ -153,7 +153,7 @@ impl AppState {
     pub async fn reload_disguise(&self) -> Result<(), sea_orm::DbErr> {
         let settings = self.settings().await?;
         let custom_page = db::settings::get_disguise_page(&self.db).await?;
-        let disguise = Disguise::new(load_disguise_page(&self.config, custom_page), &settings);
+        let disguise = Disguise::from_settings(load_disguise_page(&self.config, custom_page), &settings);
 
         *self.disguise.write().expect("disguise lock poisoned") = disguise;
         *self.settings.write().expect("settings lock poisoned") = settings;

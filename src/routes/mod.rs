@@ -23,7 +23,7 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{Request, State},
-    http::{Method, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -86,7 +86,7 @@ async fn reject_subscription_host(
     next: axum::middleware::Next,
 ) -> Response {
     if state.scope_for(request.headers()) != RequestScope::Admin {
-        return disguise(&state, &request.into_parts().0).await;
+        return state.disguise().generate_response(&request.into_parts().0).await;
     }
     next.run(request).await
 }
@@ -114,7 +114,7 @@ async fn dispatch(State(state): State<AppState>, request: Request<Body>) -> Resp
         return response;
     }
 
-    disguise(&state, &parts).await
+    state.disguise().generate_response(&parts).await
 }
 
 /// Serves a subscription request when the path sits under the prefix.
@@ -130,7 +130,7 @@ async fn try_subscription(
     }
 
     let token = path[prefix.len()..].trim_start_matches('/');
-    Some(subscription::respond(state, parts.headers.clone(), parts.uri.query(), token).await)
+    Some(subscription::respond(state, parts, token).await)
 }
 
 /// Serves an API or SPA request when the path sits under the admin prefix.
@@ -164,45 +164,6 @@ async fn admin_response(rest: &str, prefix: &str) -> Option<Response> {
     }
 
     None
-}
-
-/// Answers a probe with the decoy page, or mirrors the sample site.
-async fn disguise(state: &AppState, parts: &axum::http::request::Parts) -> Response {
-    let settings = state.settings_cached();
-
-    if parts.method == Method::GET || parts.method == Method::HEAD {
-        if let Some(response) = passthrough(&settings, parts).await {
-            return response;
-        }
-        return state.disguise().not_found().await;
-    }
-    state.disguise().not_found_empty()
-}
-
-/// Mirrors the probe from the configured sample site.
-///
-/// Returns `None` when pass-through is off or the upstream fails, in which case
-/// the caller falls back to the static disguise page. Failures are logged but
-/// never surfaced, so the client cannot tell the two paths apart.
-async fn passthrough(
-    settings: &crate::db::settings::AppSettings,
-    parts: &axum::http::request::Parts,
-) -> Option<Response> {
-    let target = crate::disguise_passthrough::Target::from_settings(settings, &parts.uri)?;
-
-    // The static page has to honour the configured delay as well, otherwise the
-    // two branches would be distinguishable by response time.
-    if settings.failure_delay_ms > 0 {
-        tokio::time::sleep(std::time::Duration::from_millis(settings.failure_delay_ms)).await;
-    }
-
-    match target.mirror(&parts.method, &parts.headers).await {
-        Ok(mirror) => Some(crate::disguise_passthrough::to_response(mirror)),
-        Err(error) => {
-            tracing::warn!(%error, "disguise passthrough failed, serving the static page");
-            None
-        }
-    }
 }
 
 /// True for SPA routes and asset files belonging to the admin UI.

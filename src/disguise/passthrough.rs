@@ -15,19 +15,20 @@
 
 use std::sync::{Arc, OnceLock};
 
+use anyhow::anyhow;
 use axum::{
-    body::{Body, Bytes},
-    http::{
-        Method, StatusCode, Uri,
+    body::{Body, Bytes}, http::{
+        Method, StatusCode,
         header::{self, HeaderMap, HeaderName, HeaderValue},
-    },
-    response::Response,
+    }, response::{IntoResponse, Response},
 };
 use http_body_util::BodyExt;
+use hyper::Uri;
 use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tracing::{error, info, warn};
+use url::Url;
 
 use crate::db::settings::AppSettings;
 
@@ -50,28 +51,27 @@ const HOP_BY_HOP: [&str; 9] = [
 ];
 
 /// A resolved upstream: where to dial, and what to ask for.
-pub struct Target {
+pub struct PassthroughTarget {
     /// Authority sent as `Host` and used as the TLS server name.
     pub authority: String,
     /// Host without the port, used for SNI.
     pub host: String,
     /// Dial address; honours the configured address override.
     pub dial_addr: String,
-    /// Origin-form request target, including the probe path.
-    pub path_and_query: String,
+    pub path_template: String,
 }
 
-impl Target {
+impl PassthroughTarget {
     /// Builds the upstream from the settings, or `None` when unusable.
     ///
     /// The probe's path and query are preserved so a request for `/anything`
     /// still reaches the sample site's own 404 handler.
-    pub fn from_settings(settings: &AppSettings, origin_uri: &Uri) -> Option<Self> {
+    pub fn from_settings(settings: &AppSettings) -> Option<Self> {
         if !settings.passthrough_configured() {
             return None;
         }
 
-        let template = url::Url::parse(&settings.disguise_template_url).ok()?;
+        let template = Url::parse(&settings.disguise_template_url).ok()?;
         if template.scheme() != "https" {
             error!(scheme = %template.scheme(), "disguise passthrough requires https");
             return None;
@@ -108,28 +108,28 @@ impl Target {
             format!("{dial_host}:{port}")
         };
 
-        let mut pathpad = origin_uri.path().to_string();
-        if !pathpad.starts_with("/") {
-            pathpad.insert(0, '/');
-        }
-        if !pathpad.ends_with("/") {
-            pathpad.push('/');
-        }
-        let pathtrimstart = origin_uri.path().trim_start_matches('/').to_owned();
-
-        let uri: Uri = settings.disguise_template_url
-            .replace("{path}", origin_uri.path())
-            .replace("{pathpad}", &pathpad)
-            .replace("{pathtrimstart}", &pathtrimstart)
-            .replace("{query}", &origin_uri.query().map_or_else(|| "".to_string(), |q| format!("?{q}")))
-            .parse().ok()?;
-
         Some(Self {
             authority,
             host,
             dial_addr,
-            path_and_query: uri.path_and_query()?.as_str().to_owned(),
+            path_template: settings.disguise_template_url.parse::<Uri>().ok()?
+                .path_and_query().map_or_else(|| "/".to_owned(), |pq| pq.as_str().to_owned()),
         })
+    }
+
+    fn parse_template(&self, origin_uri: &Uri) -> String {
+        let path = origin_uri.path();
+        let query = origin_uri.query().map_or_else(|| "".to_owned(), |q| "?".to_owned() + q);
+        let pathpad = if path == "/" { "/" } else { "" };
+        let pathtrimstart = path.trim_start_matches('/');
+
+        let mut result = self.path_template.clone();
+        result = result.replace("{path}", path);
+        result = result.replace("{query}", &query);
+        result = result.replace("{pathpad}", pathpad);
+        result = result.replace("{pathtrimstart}", pathtrimstart);
+
+        result
     }
 
     /// Issues the upstream request, returning the sample response.
@@ -137,9 +137,11 @@ impl Target {
         &self,
         method: &Method,
         headers: &HeaderMap,
-    ) -> Result<MirrorResponse, String> {
+        origin_uri: &Uri
+    ) -> anyhow::Result<MirrorResponse> {
+        let access_uri = self.parse_template(origin_uri).parse::<Uri>()?;
         let request = build_request::<http_body_util::Empty<Bytes>>(
-            &self.path_and_query,
+            &(access_uri.path().to_owned() + access_uri.query().unwrap_or("")),
             &self.authority,
             method,
             headers,
@@ -147,8 +149,8 @@ impl Target {
 
         let response = tokio::time::timeout(TIMEOUT, self.send(request))
             .await
-            .map_err(|_| "upstream timed out".to_owned())?
-            .map_err(|error| format!("upstream request failed: {error}"))?;
+            .map_err(|_| anyhow!("upstream timed out"))?
+            .map_err(|error| anyhow!("upstream request failed: {error}"))?;
 
         let status = response.status();
         let headers = response
@@ -160,12 +162,12 @@ impl Target {
 
         let body = tokio::time::timeout(TIMEOUT, response.into_body().collect())
             .await
-            .map_err(|_| "upstream body timed out".to_owned())?
-            .map_err(|error| format!("read upstream body: {error}"))?
+            .map_err(|_| anyhow!("upstream body timed out"))?
+            .map_err(|error| anyhow!("read upstream body: {error}"))?
             .to_bytes();
 
         if body.len() > MAX_BODY {
-            return Err("upstream response too large".to_owned());
+            return Err(anyhow!("upstream response too large"));
         }
 
         Ok(MirrorResponse {
@@ -230,6 +232,19 @@ pub struct MirrorResponse {
     pub body: Bytes,
 }
 
+impl IntoResponse for MirrorResponse {
+    /// Converts a mirrored answer into a response with fingerprints stripped.
+    fn into_response(self) -> Response {
+        let mut response = Response::new(Body::from(self.body));
+        *response.status_mut() = self.status;
+        for (name, value) in self.headers {
+            response.headers_mut().insert(name, value);
+        }
+        crate::disguise::strip_identifying_headers(&mut response);
+        response
+    }
+}
+
 /// Builds the outbound request.
 ///
 /// The URI is deliberately origin-form (`/path?query`): hyper serialises it
@@ -240,7 +255,7 @@ fn build_request<B>(
     authority: &str,
     method: &Method,
     headers: &HeaderMap,
-) -> Result<hyper::Request<B>, String>
+) -> anyhow::Result<hyper::Request<B>>
 where
     B: Default,
 {
@@ -257,7 +272,7 @@ where
 
     builder
         .body(B::default())
-        .map_err(|error| format!("build upstream request: {error}"))
+        .map_err(|error| anyhow!("build upstream request: {error}"))
 }
 
 /// True for headers that may be copied in either direction.
@@ -316,16 +331,6 @@ fn pem_certificates(pem: &[u8]) -> Vec<rustls::pki_types::CertificateDer<'static
         .collect()
 }
 
-/// Converts a mirrored answer into a response with fingerprints stripped.
-pub fn to_response(mirror: MirrorResponse) -> Response {
-    let mut response = Response::new(Body::from(mirror.body));
-    *response.status_mut() = mirror.status;
-    for (name, value) in mirror.headers {
-        response.headers_mut().insert(name, value);
-    }
-    crate::disguise::strip_identifying_headers(&mut response);
-    response
-}
 
 #[cfg(test)]
 mod tests {
@@ -343,14 +348,14 @@ mod tests {
     fn disabled_passthrough_has_no_target() {
         let mut settings = settings();
         settings.disguise_passthrough = false;
-        assert!(Target::from_settings(&settings, &Uri::from_static("https://example.com/")).is_none());
+        assert!(PassthroughTarget::from_settings(&settings).is_none());
     }
 
     #[test]
     fn a_configured_port_changes_the_dial_port_only() {
         let mut settings = settings();
         settings.disguise_template_port = 8443;
-        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/")).expect("target");
+        let target = PassthroughTarget::from_settings(&settings).expect("target");
         assert_eq!(target.authority, "sample.example.com:8443");
         assert_eq!(target.dial_addr, "sample.example.com:8443");
         assert_eq!(target.host, "sample.example.com");
@@ -360,7 +365,7 @@ mod tests {
     fn a_configured_ip_replaces_dns_but_not_the_host() {
         let mut settings = settings();
         settings.disguise_template_ip = "203.0.113.7".to_owned();
-        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/")).expect("target");
+        let target = PassthroughTarget::from_settings(&settings).expect("target");
         assert_eq!(target.dial_addr, "203.0.113.7:443");
         assert_eq!(target.authority, "sample.example.com");
         assert_eq!(target.host, "sample.example.com");
@@ -370,7 +375,7 @@ mod tests {
     fn a_configured_hostname_replaces_dns_but_not_the_host() {
         let mut settings = settings();
         settings.disguise_template_ip = "host.docker.internal".to_owned();
-        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/")).expect("target");
+        let target = PassthroughTarget::from_settings(&settings).expect("target");
         assert_eq!(target.dial_addr, "host.docker.internal:443");
         assert_eq!(target.authority, "sample.example.com");
         assert_eq!(target.host, "sample.example.com");
@@ -380,7 +385,7 @@ mod tests {
     fn an_ipv6_override_is_bracketed() {
         let mut settings = settings();
         settings.disguise_template_ip = "2001:db8::1".to_owned();
-        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/")).expect("target");
+        let target = PassthroughTarget::from_settings(&settings).expect("target");
         assert_eq!(target.dial_addr, "[2001:db8::1]:443");
     }
 
@@ -388,39 +393,39 @@ mod tests {
     fn url_path_query_placeholders_are_replaced() {
         let mut settings = settings();
         settings.disguise_template_url = "https://sample.example.com/test{path}/hello{query}".to_owned();
-        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/foo/bar?x=1&y=2")).expect("target");
-        assert_eq!(target.path_and_query, "/test/foo/bar/hello?x=1&y=2");
+        let target = PassthroughTarget::from_settings(&settings).expect("target");
+        assert_eq!(target.parse_template(&Uri::from_static("https://sample.example.com/foo/bar?x=1&y=2")), "/test/foo/bar/hello?x=1&y=2");
     }
 
     #[test]
     fn url_query_placeholder_query_absent() {
         let mut settings = settings();
         settings.disguise_template_url = "https://sample.example.com/test{path}/hello{query}".to_owned();
-        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/foo/bar")).expect("target");
-        assert_eq!(target.path_and_query, "/test/foo/bar/hello");
+        let target = PassthroughTarget::from_settings(&settings).expect("target");
+        assert_eq!(target.parse_template(&Uri::from_static("https://sample.example.com/foo/bar")), "/test/foo/bar/hello");
     }
 
     #[test]
     fn url_query_placeholder_path_pad() {
         let mut settings = settings();
         settings.disguise_template_url = "https://sample.example.com/test{pathpad}hello{query}".to_owned();
-        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/")).expect("target");
-        assert_eq!(target.path_and_query, "/test/hello");
+        let target = PassthroughTarget::from_settings(&settings).expect("target");
+        assert_eq!(target.parse_template(&Uri::from_static("https://sample.example.com/")), "/test/hello");
     }
 
     #[test]
     fn url_query_placeholder_path_trim_start() {
         let mut settings = settings();
         settings.disguise_template_url = "https://sample.example.com/test/{pathtrimstart}hello{query}".to_owned();
-        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/foo/bar")).expect("target");
-        assert_eq!(target.path_and_query, "/test/foo/barhello");
+        let target = PassthroughTarget::from_settings(&settings).expect("target");
+        assert_eq!(target.parse_template(&Uri::from_static("https://sample.example.com/foo/bar")), "/test/foo/barhello");
     }
 
     #[test]
     fn plain_http_is_refused() {
         let mut settings = settings();
         settings.disguise_template_url = "http://sample.example.com/".to_owned();
-        assert!(Target::from_settings(&settings, &Uri::from_static("https://example.com/")).is_none());
+        assert!(PassthroughTarget::from_settings(&settings).is_none());
     }
 
     #[test]

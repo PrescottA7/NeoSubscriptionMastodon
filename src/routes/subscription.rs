@@ -6,9 +6,7 @@
 // in the project root for the full text.
 
 use axum::{
-    body::Body,
-    http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::Response,
+    body::Body, http::{HeaderValue, StatusCode, header, request}, response::Response,
 };
 use serde::Deserialize;
 
@@ -56,27 +54,28 @@ fn detect_target(user_agent: &str) -> Option<Core> {
 /// error — produces the disguise page instead of a diagnostic message.
 pub async fn respond(
     state: &AppState,
-    headers: HeaderMap,
-    query: Option<&str>,
+    parts: &request::Parts,
     token: &str,
 ) -> Response {
     let disguise = state.disguise();
+    let headers = parts.headers.clone();
+    let query = parts.uri.query();
 
     if token.is_empty() || token.contains('/') {
-        return disguise.not_found().await;
+        return disguise.generate_response(&parts).await;
     }
 
     let user = match users::find_by_token(&state.db, token).await {
         Ok(Some(user)) => user,
-        Ok(None) => return disguise.not_found().await,
+        Ok(None) => return disguise.generate_response(&parts).await,
         Err(error) => {
             tracing::warn!(%error, "subscription lookup failed");
-            return disguise.not_found().await;
+            return disguise.generate_response(&parts).await;
         }
     };
 
     if !user.enabled {
-        return disguise.not_found().await;
+        return disguise.generate_response(&parts).await;
     }
 
     let params = parse_query(query);
@@ -100,12 +99,12 @@ pub async fn respond(
             Ok(resolved) => resolved,
             Err(error) => {
                 tracing::warn!(%error, "credential lookup failed");
-                return disguise.not_found().await;
+                return disguise.generate_response(&parts).await;
             }
         };
 
     if resolved.is_empty() {
-        return disguise.not_found().await;
+        return disguise.generate_response(&parts).await;
     }
 
     let render_user = RenderUser {
@@ -139,14 +138,14 @@ pub async fn respond(
     }
 
     if contexts.is_empty() {
-        return disguise.not_found().await;
+        return disguise.generate_response(&parts).await;
     }
 
     let content = match render_collection(target, &contexts) {
         Ok(content) => content,
         Err(error) => {
             tracing::warn!(%error, "rendering failed");
-            return disguise.not_found().await;
+            return disguise.generate_response(&parts).await;
         }
     };
 

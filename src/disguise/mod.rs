@@ -8,25 +8,83 @@
 use std::sync::Arc;
 
 use axum::{
-    body::Body,
-    http::{HeaderValue, StatusCode, header},
-    response::{IntoResponse, Response},
+    body::Body, http::{HeaderValue, StatusCode, header, request}, response::{IntoResponse, Response},
 };
+use hyper::Method;
 
 use crate::db::settings::AppSettings;
 
+pub mod passthrough;
+
+use passthrough::PassthroughTarget;
+
 /// Built-in disguise page. It is deliberately generic: nothing in it hints at
 /// proxying, subscriptions, or this application.
-const BUILTIN_PAGE: &str = include_str!("../404.html");
+const BUILTIN_PAGE: &str = include_str!("404.html");
+
+#[derive(Clone)]
+pub enum Disguise {
+    Html(DisguiseHtml),
+    Passthrough(Arc<PassthroughTarget>),
+}
+
+impl Disguise {
+    pub fn from_settings(page: Option<String>, settings: &AppSettings) -> Self {
+        if let Some(target) = PassthroughTarget::from_settings(settings) {
+            Self::Passthrough(Arc::new(target))
+        } else {
+            Self::Html(DisguiseHtml::new(page, settings))
+        }
+    }
+    
+    pub fn page(&self) -> &str {
+        match self {
+            Self::Html(html) => html.page(),
+            Self::Passthrough(_) => "Disabled: passthrough disguise does not have a page",
+        }
+    }
+
+    pub async fn generate_response(&self, parts: &request::Parts) -> Response {
+        match self {
+            Self::Html(html) => {
+                if parts.method == Method::HEAD {
+                    html.not_found_empty()
+                } else {
+                    html.not_found().await
+                }
+            },
+            Self::Passthrough(target) => {
+                match target.mirror(&parts.method, &parts.headers, &parts.uri).await {
+                    Ok(resp) => resp.into_response(),
+                    Err(err) => {
+                        tracing::error!("Passthrough mirror failed, parts={parts:?}, {err:?}");
+                        let mut response = if parts.method == Method::HEAD {
+                            Response::new(Body::empty())
+                        } else {
+                            Response::new(Body::from(BUILTIN_PAGE.to_owned()))
+                        };
+                        *response.status_mut() = StatusCode::NOT_FOUND;
+                        response.headers_mut().insert(
+                            header::CONTENT_TYPE,
+                            HeaderValue::from_static("text/html; charset=iso-8859-1"),
+                        );
+                        strip_identifying_headers(&mut response);
+                        response
+                    }
+                }
+            }
+        }
+    }
+}
 
 /// Serves the decoy content used for every failed public lookup.
 #[derive(Clone)]
-pub struct Disguise {
+pub struct DisguiseHtml {
     page: Arc<String>,
     delay_ms: u64,
 }
 
-impl Disguise {
+impl DisguiseHtml {
     pub fn new(page: Option<String>, settings: &AppSettings) -> Self {
         Self {
             page: Arc::new(page.unwrap_or_else(|| BUILTIN_PAGE.to_owned())),
@@ -79,7 +137,7 @@ pub fn embedded_page() -> &'static str {
     BUILTIN_PAGE
 }
 
-impl IntoResponse for Disguise {
+impl IntoResponse for DisguiseHtml {
     fn into_response(self) -> Response {
         self.build_response(StatusCode::NOT_FOUND)
     }
@@ -96,7 +154,7 @@ mod tests {
 
     #[test]
     fn custom_page_overrides_builtin() {
-        let disguise = Disguise::new(
+        let disguise = DisguiseHtml::new(
             Some("<html>custom</html>".to_owned()),
             &AppSettings::default(),
         );
@@ -109,13 +167,13 @@ mod tests {
             failure_delay_ms: 250,
             ..Default::default()
         };
-        let disguise = Disguise::new(None, &settings);
+        let disguise = DisguiseHtml::new(None, &settings);
         assert_eq!(disguise.delay_ms, 250);
     }
 
     #[tokio::test]
     async fn not_found_response_hides_identifying_headers() {
-        let disguise = Disguise::new(None, &AppSettings::default());
+        let disguise = DisguiseHtml::new(None, &AppSettings::default());
         let mut response = disguise.not_found().await;
         response
             .headers_mut()
