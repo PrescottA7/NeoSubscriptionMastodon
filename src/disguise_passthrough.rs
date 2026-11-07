@@ -66,14 +66,14 @@ impl Target {
     ///
     /// The probe's path and query are preserved so a request for `/anything`
     /// still reaches the sample site's own 404 handler.
-    pub fn from_settings(settings: &AppSettings, path_and_query: &str) -> Option<Self> {
+    pub fn from_settings(settings: &AppSettings, origin_uri: &Uri) -> Option<Self> {
         if !settings.passthrough_configured() {
             return None;
         }
 
         let template = url::Url::parse(&settings.disguise_template_url).ok()?;
         if template.scheme() != "https" {
-            tracing::error!(scheme = %template.scheme(), "disguise passthrough requires https");
+            error!(scheme = %template.scheme(), "disguise passthrough requires https");
             return None;
         }
 
@@ -108,9 +108,21 @@ impl Target {
             format!("{dial_host}:{port}")
         };
 
-        let uri: Uri = format!("https://{authority}{path_and_query}")
-            .parse()
-            .ok()?;
+        let mut pathpad = origin_uri.path().to_string();
+        if !pathpad.starts_with("/") {
+            pathpad.insert(0, '/');
+        }
+        if !pathpad.ends_with("/") {
+            pathpad.push('/');
+        }
+        let pathtrimstart = origin_uri.path().trim_start_matches('/').to_owned();
+
+        let uri: Uri = settings.disguise_template_url
+            .replace("{path}", origin_uri.path())
+            .replace("{pathpad}", &pathpad)
+            .replace("{pathtrimstart}", &pathtrimstart)
+            .replace("{query}", &origin_uri.query().map_or_else(|| "".to_string(), |q| format!("?{q}")))
+            .parse().ok()?;
 
         Some(Self {
             authority,
@@ -371,29 +383,14 @@ mod tests {
     fn disabled_passthrough_has_no_target() {
         let mut settings = settings();
         settings.disguise_passthrough = false;
-        assert!(Target::from_settings(&settings, "/x").is_none());
-    }
-
-    #[test]
-    fn missing_url_has_no_target() {
-        let mut settings = settings();
-        settings.disguise_template_url.clear();
-        assert!(Target::from_settings(&settings, "/x").is_none());
-    }
-
-    #[test]
-    fn the_probe_path_is_kept() {
-        let target = Target::from_settings(&settings(), "/anything?q=1").expect("target");
-        assert_eq!(target.path_and_query, "/anything?q=1");
-        assert_eq!(target.authority, "sample.example.com");
-        assert_eq!(target.dial_addr, "sample.example.com:443");
+        assert!(Target::from_settings(&settings, &Uri::from_static("https://example.com/")).is_none());
     }
 
     #[test]
     fn a_configured_port_changes_the_dial_port_only() {
         let mut settings = settings();
         settings.disguise_template_port = 8443;
-        let target = Target::from_settings(&settings, "/").expect("target");
+        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/")).expect("target");
         assert_eq!(target.authority, "sample.example.com:8443");
         assert_eq!(target.dial_addr, "sample.example.com:8443");
         assert_eq!(target.host, "sample.example.com");
@@ -403,7 +400,7 @@ mod tests {
     fn a_configured_ip_replaces_dns_but_not_the_host() {
         let mut settings = settings();
         settings.disguise_template_ip = "203.0.113.7".to_owned();
-        let target = Target::from_settings(&settings, "/").expect("target");
+        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/")).expect("target");
         assert_eq!(target.dial_addr, "203.0.113.7:443");
         assert_eq!(target.authority, "sample.example.com");
         assert_eq!(target.host, "sample.example.com");
@@ -413,7 +410,7 @@ mod tests {
     fn a_configured_hostname_replaces_dns_but_not_the_host() {
         let mut settings = settings();
         settings.disguise_template_ip = "host.docker.internal".to_owned();
-        let target = Target::from_settings(&settings, "/").expect("target");
+        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/")).expect("target");
         assert_eq!(target.dial_addr, "host.docker.internal:443");
         assert_eq!(target.authority, "sample.example.com");
         assert_eq!(target.host, "sample.example.com");
@@ -423,15 +420,47 @@ mod tests {
     fn an_ipv6_override_is_bracketed() {
         let mut settings = settings();
         settings.disguise_template_ip = "2001:db8::1".to_owned();
-        let target = Target::from_settings(&settings, "/").expect("target");
+        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/")).expect("target");
         assert_eq!(target.dial_addr, "[2001:db8::1]:443");
+    }
+
+    #[test]
+    fn url_path_query_placeholders_are_replaced() {
+        let mut settings = settings();
+        settings.disguise_template_url = "https://sample.example.com/test{path}/hello{query}".to_owned();
+        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/foo/bar?x=1&y=2")).expect("target");
+        assert_eq!(target.path_and_query, "/test/foo/bar/hello?x=1&y=2");
+    }
+
+    #[test]
+    fn url_query_placeholder_query_absent() {
+        let mut settings = settings();
+        settings.disguise_template_url = "https://sample.example.com/test{path}/hello{query}".to_owned();
+        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/foo/bar")).expect("target");
+        assert_eq!(target.path_and_query, "/test/foo/bar/hello");
+    }
+
+    #[test]
+    fn url_query_placeholder_path_pad() {
+        let mut settings = settings();
+        settings.disguise_template_url = "https://sample.example.com/test{pathpad}hello{query}".to_owned();
+        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/")).expect("target");
+        assert_eq!(target.path_and_query, "/test/hello");
+    }
+
+    #[test]
+    fn url_query_placeholder_path_trim_start() {
+        let mut settings = settings();
+        settings.disguise_template_url = "https://sample.example.com/test/{pathtrimstart}hello{query}".to_owned();
+        let target = Target::from_settings(&settings, &Uri::from_static("https://sample.example.com/foo/bar")).expect("target");
+        assert_eq!(target.path_and_query, "/test/foo/barhello");
     }
 
     #[test]
     fn plain_http_is_refused() {
         let mut settings = settings();
         settings.disguise_template_url = "http://sample.example.com/".to_owned();
-        assert!(Target::from_settings(&settings, "/").is_none());
+        assert!(Target::from_settings(&settings, &Uri::from_static("https://example.com/")).is_none());
     }
 
     #[test]

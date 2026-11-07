@@ -10,6 +10,8 @@ services:
     environment:
       NSM_COOKIE_SECURE: "${NSM_COOKIE_SECURE:-false}"
       NSM_LOG_STDOUT: "${NSM_LOG_STDOUT:-true}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - nsm-data:/app/data
     healthcheck:
