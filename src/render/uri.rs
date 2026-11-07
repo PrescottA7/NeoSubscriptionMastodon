@@ -65,6 +65,7 @@ fn vless(context: &RenderContext, config: &VlessConfig) -> String {
         context.port,
         &query,
         &context.label(),
+        false,
     )
 }
 
@@ -85,6 +86,7 @@ fn trojan(context: &RenderContext, config: &TrojanConfig) -> String {
         context.port,
         &query,
         &context.label(),
+        false,
     )
 }
 
@@ -116,10 +118,9 @@ fn hysteria2(context: &RenderContext, config: &Hysteria2Config) -> String {
     if config.disable_chrome_parrot {
         query.push(("disable-chrome-parrot", "true".to_owned()));
     }
-    query.push((
-        "insecure",
-        if config.tls.insecure { "1" } else { "0" }.to_owned(),
-    ));
+    if config.tls.insecure {
+        query.push(("insecure", "1".to_owned()));
+    }
     push_tls_common(&mut query, &config.tls, &context.server, false);
 
     let userinfo = format!(
@@ -134,6 +135,7 @@ fn hysteria2(context: &RenderContext, config: &Hysteria2Config) -> String {
         context.port,
         &query,
         &context.label(),
+        true,
     )
 }
 
@@ -172,6 +174,7 @@ fn tuic(context: &RenderContext, config: &TuicConfig) -> String {
         context.port,
         &query,
         &context.label(),
+        false,
     )
 }
 
@@ -214,6 +217,7 @@ fn anytls(context: &RenderContext, config: &AnytlsConfig) -> String {
         context.port,
         &query,
         &context.label(),
+        false,
     )
 }
 
@@ -353,8 +357,12 @@ fn build_uri(
     port: u16,
     query: &[(&str, String)],
     label: &str,
+    trailing_slash: bool,
 ) -> String {
     let mut url = format!("{scheme}://{authority}:{port}");
+    if trailing_slash {
+        url.push('/');
+    }
 
     let filtered: Vec<String> = query
         .iter()
@@ -571,9 +579,9 @@ mod tests {
 
         let link = render(&context(params));
         assert!(link.starts_with(
-            "hysteria2://user%40tokyo:pass%2Fword@[2001:db8::1]:443?"
+            "hysteria2://user%40tokyo:pass%2Fword@[2001:db8::1]:443/?"
         ));
-        assert!(link.contains("insecure=0"));
+        assert!(!link.contains("insecure="));
         assert!(!link.contains("fp="));
         assert!(link.contains("mport=2080%3A3000"));
         assert!(link.contains("hop_interval=30s"));
@@ -581,6 +589,27 @@ mod tests {
         assert!(link.contains("downmbps=200"));
         assert!(link.contains("obfs=salamander"));
         assert!(link.contains("obfs-password=obfs-pass"));
+    }
+
+    #[test]
+    fn hysteria2_link_emits_insecure_only_when_enabled() {
+        let params = ProxyKind::Hysteria2(Hysteria2Config {
+            tls: TlsConfig {
+                enabled: true,
+                insecure: true,
+                server_name: Some("a.b.com".to_owned()),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let link = render(&context(params));
+        assert!(link.starts_with(
+            "hysteria2://user%40tokyo:pass%2Fword@[2001:db8::1]:443/?"
+        ));
+        assert!(link.contains("insecure=1"));
+        assert!(link.contains("sni=a.b.com"));
+        assert!(!link.contains("fp="));
     }
 
     #[test]
