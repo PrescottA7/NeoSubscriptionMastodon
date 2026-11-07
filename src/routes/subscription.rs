@@ -62,20 +62,20 @@ pub async fn respond(
     let query = parts.uri.query();
 
     if token.is_empty() || token.contains('/') {
-        return disguise.generate_response(&parts).await;
+        return disguise.generate_response(parts).await;
     }
 
     let user = match users::find_by_token(&state.db, token).await {
         Ok(Some(user)) => user,
-        Ok(None) => return disguise.generate_response(&parts).await,
+        Ok(None) => return disguise.generate_response(parts).await,
         Err(error) => {
             tracing::warn!(%error, "subscription lookup failed");
-            return disguise.generate_response(&parts).await;
+            return disguise.generate_response(parts).await;
         }
     };
 
     if !user.enabled {
-        return disguise.generate_response(&parts).await;
+        return disguise.generate_response(parts).await;
     }
 
     let params = parse_query(query);
@@ -99,12 +99,12 @@ pub async fn respond(
             Ok(resolved) => resolved,
             Err(error) => {
                 tracing::warn!(%error, "credential lookup failed");
-                return disguise.generate_response(&parts).await;
+                return disguise.generate_response(parts).await;
             }
         };
 
     if resolved.is_empty() {
-        return disguise.generate_response(&parts).await;
+        return disguise.generate_response(parts).await;
     }
 
     let render_user = RenderUser {
@@ -138,14 +138,14 @@ pub async fn respond(
     }
 
     if contexts.is_empty() {
-        return disguise.generate_response(&parts).await;
+        return disguise.generate_response(parts).await;
     }
 
     let content = match render_collection(target, &contexts) {
         Ok(content) => content,
         Err(error) => {
             tracing::warn!(%error, "rendering failed");
-            return disguise.generate_response(&parts).await;
+            return disguise.generate_response(parts).await;
         }
     };
 
