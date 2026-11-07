@@ -121,13 +121,15 @@ fn hysteria2(context: &RenderContext, config: &Hysteria2Config) -> String {
     }
     push_tls_common(&mut query, &config.tls, &context.server);
 
+    let userinfo = format!(
+        "{}:{}",
+        url_encode(&context.credentials.email),
+        url_encode(&context.credentials.password)
+    );
+
     build_uri(
         "hysteria2",
-        &format!(
-            "{}@{}",
-            url_encode(&context.credentials.password),
-            format_host(&context.server)
-        ),
+        &format!("{userinfo}@{}", format_host(&context.server)),
         context.port,
         &query,
         &context.label(),
@@ -566,7 +568,9 @@ mod tests {
         });
 
         let link = render(&context(params));
-        assert!(link.starts_with("hysteria2://pass%2Fword@[2001:db8::1]:443?"));
+        assert!(link.starts_with(
+            "hysteria2://user%40tokyo:pass%2Fword@[2001:db8::1]:443?"
+        ));
         assert!(link.contains("mport=2080%3A3000"));
         assert!(link.contains("hop_interval=30s"));
         assert!(link.contains("upmbps=30"));
